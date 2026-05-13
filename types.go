@@ -203,6 +203,8 @@ type StrategyConfig struct {
         VolumeDropFraction  float64
         MaxHoldMinutes      float64
         MinProfitForHold    float64
+        MinMarketCapUSD     float64 // min market cap dalam USD (0 = nonaktif)
+        MaxMarketCapUSD     float64 // max market cap dalam USD (0 = nonaktif)
         TradeSizeUSD        float64
         MaxOpenTrades       int
         RiskLevel           string

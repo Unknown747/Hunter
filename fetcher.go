@@ -28,10 +28,6 @@ const (
         // Token profiles terbaru dari DexScreener — sumber listing baru
         urlTokenProfiles = "https://api.dexscreener.com/token-profiles/latest/v1"
 
-        // Endpoint khusus listing BARU terbaru di Base — diurutkan berdasarkan waktu pembuatan
-        // Jauh lebih efektif dari keyword search karena langsung target koin baru
-        urlLatestTokensBase = "https://api.dexscreener.com/token-profiles/latest/v1"
-
         // Batas umur pair yang masih dianggap "baru" untuk filter profil (45 menit — sinkron dengan filter.go)
         maxNewPairAgeHours = 0.75
 )

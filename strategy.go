@@ -80,6 +80,14 @@ func CheckEntry(t *TokenInfo, state *TokenState, cfg *StrategyConfig) EntryResul
                 return EntryResult{false, fmt.Sprintf("liq $%.0f < $%.0f", t.Liquidity, cfg.MinLiquidityUSD)}
         }
 
+        // ── Market cap filter ─────────────────────────────────────────────────────
+        if cfg.MinMarketCapUSD > 0 && t.MarketCap > 0 && t.MarketCap < cfg.MinMarketCapUSD {
+                return EntryResult{false, fmt.Sprintf("mcap $%.0f < $%.0f (terlalu kecil)", t.MarketCap, cfg.MinMarketCapUSD)}
+        }
+        if cfg.MaxMarketCapUSD > 0 && t.MarketCap > cfg.MaxMarketCapUSD {
+                return EntryResult{false, fmt.Sprintf("mcap $%.0f > $%.0f (terlalu besar)", t.MarketCap, cfg.MaxMarketCapUSD)}
+        }
+
         // ── Sweet spot umur ────────────────────────────────────────────────────────
         if ageMin > cfg.MaxAgeMinutes {
                 return EntryResult{false, fmt.Sprintf("terlalu lama: %.1f menit (max %.0f menit)", ageMin, cfg.MaxAgeMinutes)}

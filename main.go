@@ -5,6 +5,7 @@ import (
         "net/http"
         "os"
         "os/signal"
+        "strconv"
         "strings"
         "syscall"
         "time"
@@ -29,6 +30,22 @@ func main() {
                         cfg.RiskLevel, cfg.MinScore, cfg.MinLiquidityUSD, cfg.MaxOpenTrades, cfg.TrailingStopPct)
         } else {
                 logger.Printf("[config] Risk level: normal (default)")
+        }
+
+        // ── Market cap filter dari env var (opsional) ─────────────────────────────
+        // MIN_MARKET_CAP=50000   → hanya masuk jika mcap ≥ $50k
+        // MAX_MARKET_CAP=5000000 → hanya masuk jika mcap ≤ $5M
+        if v := os.Getenv("MIN_MARKET_CAP"); v != "" {
+                if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+                        cfg.MinMarketCapUSD = f
+                        logger.Printf("[config] Min market cap: $%.0f", f)
+                }
+        }
+        if v := os.Getenv("MAX_MARKET_CAP"); v != "" {
+                if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+                        cfg.MaxMarketCapUSD = f
+                        logger.Printf("[config] Max market cap: $%.0f", f)
+                }
         }
 
         stats := NewStatsCounter()
@@ -183,12 +200,10 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
                                 batchPassed++
                                 t.Score = Score(t)
                                 t.Category = Categorize(t.Score)
-                                priorState, _ := cache.Upsert(t)
+                                priorState, sigs := cache.Upsert(t)
                                 pm.OnTokenUpdate(t, &priorState)
-                                if sigs := DetectSignals(t, &priorState); len(sigs) > 0 {
-                                        for _, sig := range sigs {
-                                                tg.NotifySignal(sig, t)
-                                        }
+                                for _, sig := range sigs {
+                                        tg.NotifySignal(sig, t)
                                 }
                                 stats.RecordPassed()
                                 stats.SetLastTokenTime()
