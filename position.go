@@ -67,13 +67,20 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
                 return
         }
 
-        // Re-check di bawah write lock sebelum menyimpan posisi
+        // Re-check di bawah write lock sebelum menyimpan posisi.
+        // PENTING: Jika buy sudah berhasil on-chain, SELALU simpan posisinya meskipun
+        // ada race condition — jika tidak, token nyangkut di wallet tanpa dicatat bot.
         pm.mu.Lock()
         defer pm.mu.Unlock()
 
-        if pm.hasOpenFor(t.PairAddress) || pm.openCount() >= pm.cfg.MaxOpenTrades {
-                logger.Printf("[trader] ⚠️  DUPLIKAT/PENUH — posisi %s dibatalkan setelah buy", t.Symbol)
-                return
+        if pm.hasOpenFor(t.PairAddress) {
+                // Posisi duplikat — aneh tapi tetap catat agar token tidak hilang
+                logger.Printf("[trader] ⚠️  DUPLIKAT terdeteksi setelah buy %s — tetap mencatat posisi (tx=%s)",
+                        t.Symbol, fill.TxHash)
+        } else if pm.openCount() >= pm.cfg.MaxOpenTrades {
+                // Melewati batas maks — tetap catat, jangan biarkan token orphan
+                logger.Printf("[trader] ⚠️  Melebihi batas posisi setelah buy %s — tetap mencatat (tx=%s)",
+                        t.Symbol, fill.TxHash)
         }
 
         pos := &Position{
@@ -236,7 +243,9 @@ func (pm *PositionManager) CloseAll(reason string) int {
                 pos.Fills = append(pos.Fills, fill)
                 pos.GasCostUSD += fill.GasUSD
                 pos.PnLPercent = (fill.Price/pos.EntryPrice - 1) * 100
-                pos.RealizedUSD += fill.USD - pos.SizeUSD
+                // Gunakan cost basis yang benar: hanya sisa posisi yang belum ditutup
+                // (misalnya jika TP1 sudah jual 50%, remaining adalah 50% saja)
+                pos.RealizedUSD += fill.USD - (pos.SizeUSD * pos.RemainingPct / 100.0)
                 pos.Status = PositionClosed
                 pos.ExitReason = reason
                 pos.RemainingPct = 0
