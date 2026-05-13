@@ -40,7 +40,8 @@ func main() {
                 logger.Printf("[persist] ⚠️  Gagal muat state: %v", err)
         }
 
-        rawPairs := make(chan []DexPair, 2)
+        // Buffer lebih besar: fetcher + factory watcher keduanya menulis ke channel ini
+        rawPairs := make(chan []DexPair, 20)
 
         // stop ditutup saat menerima sinyal OS untuk graceful shutdown
         stop := make(chan struct{})
@@ -88,12 +89,12 @@ func main() {
         }()
 
         fetcher := NewFetcher(rawPairs)
-        // Tutup rawPairs saat fetcher selesai agar runPipeline keluar dari range loop
-        go func() {
-                fetcher.Run(stop, stats)
-                close(rawPairs)
-        }()
-        go runPipeline(rawPairs, cache, pm)
+        go fetcher.Run(stop, stats)
+
+        // Factory watcher: sumber utama koin BARU — monitor Aerodrome factory on-chain
+        go RunFactoryWatcher(rawPairs)
+
+        go runPipeline(rawPairs, cache, pm, stop)
         go cache.Cleanup(stop)
 
         server := NewAPIServer(cache, stats, pm, bl)
@@ -105,18 +106,30 @@ func main() {
         }
 }
 
-func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager) {
-        for pairs := range in {
-                for i := range pairs {
-                        p := &pairs[i]
-                        t := Normalize(p)
-                        if !Filter(t) {
-                                continue
+func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-chan struct{}) {
+        for {
+                select {
+                case <-stop:
+                        return
+                case pairs, ok := <-in:
+                        if !ok {
+                                return
                         }
-                        t.Score = Score(t)
-                        t.Category = Categorize(t.Score)
-                        priorState, _ := cache.Upsert(t)
-                        pm.OnTokenUpdate(t, &priorState)
+                        for i := range pairs {
+                                p := &pairs[i]
+                                t := Normalize(p)
+
+                                // Bypass filter umur untuk token yang sudah ada posisi terbuka —
+                                // kita tetap perlu update harga meski token sudah > 2 jam
+                                hasPos := pm.HasOpenPosition(p.PairAddress)
+                                if !hasPos && !Filter(t) {
+                                        continue
+                                }
+                                t.Score = Score(t)
+                                t.Category = Categorize(t.Score)
+                                priorState, _ := cache.Upsert(t)
+                                pm.OnTokenUpdate(t, &priorState)
+                        }
                 }
         }
 }
