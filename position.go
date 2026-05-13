@@ -22,6 +22,30 @@ type PositionManager struct {
         exec      Executor
         bl        *Blacklist
         rugStore  *RugPatternStore
+        paused    bool // jika true, checkEntry tidak membuka posisi baru
+}
+
+// Pause menghentikan pembukaan posisi baru sementara. Exit tetap berjalan normal.
+func (pm *PositionManager) Pause() {
+        pm.mu.Lock()
+        pm.paused = true
+        pm.mu.Unlock()
+        logger.Printf("[trader] ⏸ Entry dijeda via Telegram — posisi yang ada tetap dipantau")
+}
+
+// Resume mengaktifkan kembali pembukaan posisi baru.
+func (pm *PositionManager) Resume() {
+        pm.mu.Lock()
+        pm.paused = false
+        pm.mu.Unlock()
+        logger.Printf("[trader] ▶️  Entry diaktifkan kembali via Telegram")
+}
+
+// IsPaused mengembalikan status paused saat ini.
+func (pm *PositionManager) IsPaused() bool {
+        pm.mu.RLock()
+        defer pm.mu.RUnlock()
+        return pm.paused
 }
 
 func NewPositionManager(cfg *StrategyConfig, exec Executor, bl *Blacklist, rugStore *RugPatternStore) *PositionManager {
@@ -57,8 +81,12 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
         pm.mu.RLock()
         open := pm.openCount()
         already := pm.hasOpenFor(t.PairAddress)
+        paused := pm.paused
         pm.mu.RUnlock()
 
+        if paused {
+                return // entry dijeda via Telegram /pause
+        }
         if already || open >= pm.cfg.MaxOpenTrades {
                 return
         }

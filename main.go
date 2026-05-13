@@ -99,6 +99,9 @@ func main() {
         // Mendeteksi event PairCreated langsung dari blockchain Base, lebih cepat dari API manapun
         go RunFactoryWatcher(rawPairs)
 
+        // Bot dua arah: polling perintah dari Telegram (/status, /pos, /closeall, dll)
+        tg.StartPolling(pm, cache, stats, stop)
+
         go runPipeline(rawPairs, cache, pm, stats, stop)
         go cache.Cleanup(stop)
 
