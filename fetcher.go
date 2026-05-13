@@ -5,16 +5,40 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
-const dexScreenerURL = "https://api.dexscreener.com/latest/dex/search?q=aerodrome"
+// ─── Endpoint URLs ─────────────────────────────────────────────────────────────
+
+const (
+	// Sumber 1: pair populer Aerodrome (volume tinggi)
+	urlSearchAerodrome = "https://api.dexscreener.com/latest/dex/search?q=aerodrome"
+
+	// Sumber 2: listing terbaru di Base (dari DexScreener token-profiles)
+	urlTokenProfiles = "https://api.dexscreener.com/token-profiles/latest/v1"
+
+	// Sumber 3: token yang sedang di-boost (sering koin baru yang beriklan)
+	urlTokenBoosts = "https://api.dexscreener.com/token-boosts/latest/v1"
+
+	// Fetch pair data untuk daftar token address (max 30 per request)
+	urlTokensBase = "https://api.dexscreener.com/latest/dex/tokens/"
+)
+
+// ─── Types untuk endpoint baru ─────────────────────────────────────────────────
+
+type DexTokenProfile struct {
+	ChainID      string `json:"chainId"`
+	TokenAddress string `json:"tokenAddress"`
+}
+
+// ─── Fetcher ───────────────────────────────────────────────────────────────────
 
 type Fetcher struct {
 	client    *http.Client
 	out       chan<- []DexPair
-	failCount int           // jumlah error berturut-turut
-	backoff   time.Duration // backoff saat ini
+	failCount int
+	backoff   time.Duration
 }
 
 const (
@@ -32,23 +56,34 @@ func NewFetcher(out chan<- []DexPair) *Fetcher {
 	return &Fetcher{
 		client: &http.Client{
 			Transport: transport,
-			Timeout:   10 * time.Second,
+			Timeout:   15 * time.Second,
 		},
 		out: out,
 	}
 }
 
 func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
+	// Sumber 1: polling cepat — pair populer Aerodrome
 	interval := 5 * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	// Sumber 2+3: polling lambat — listing baru (setiap 30 detik)
+	newListingTicker := time.NewTicker(30 * time.Second)
+	defer newListingTicker.Stop()
+
+	// Jalankan fetch listing baru sekali di awal
+	go f.fetchAndSendNewListings()
 
 	for {
 		select {
 		case <-stop:
 			return
+
+		case <-newListingTicker.C:
+			go f.fetchAndSendNewListings()
+
 		case <-ticker.C:
-			// Jika dalam kondisi backoff, tunggu dulu
 			if f.backoff > 0 {
 				logger.Printf("[fetcher] ⏳ backoff %.0fs setelah %d error berturut-turut",
 					f.backoff.Seconds(), f.failCount)
@@ -59,7 +94,7 @@ func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
 				}
 			}
 
-			pairs, err := f.fetch()
+			pairs, err := f.fetchSearch(urlSearchAerodrome)
 			if err != nil {
 				f.failCount++
 				f.backoff = f.nextBackoff()
@@ -68,7 +103,6 @@ func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
 				continue
 			}
 
-			// Sukses — reset backoff
 			if f.failCount > 0 {
 				logger.Printf("[fetcher] ✅ Terhubung kembali setelah %d error", f.failCount)
 			}
@@ -77,7 +111,6 @@ func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
 			stats.IncrCycle()
 
 			count := len(pairs)
-			// Adaptive polling: aktivitas tinggi → interval lebih pendek
 			if count > 200 {
 				interval = 3 * time.Second
 			} else {
@@ -89,26 +122,124 @@ func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
 			select {
 			case f.out <- pairs:
 			default:
-				// Drop jika pipeline sudah penuh
 			}
 		}
 	}
 }
 
-// nextBackoff menghitung durasi backoff berikutnya (exponential, max backoffMax).
-func (f *Fetcher) nextBackoff() time.Duration {
-	if f.backoff == 0 {
-		return backoffBase
+// fetchAndSendNewListings mengambil listing terbaru dari token-profiles dan
+// token-boosts, lalu meneruskan pair Aerodrome Base yang ditemukan ke pipeline.
+func (f *Fetcher) fetchAndSendNewListings() {
+	addrs := f.collectNewBaseTokenAddresses()
+	if len(addrs) == 0 {
+		return
 	}
-	next := f.backoff * 2
-	if next > backoffMax {
-		return backoffMax
+
+	pairs := f.fetchPairsForTokens(addrs)
+	if len(pairs) == 0 {
+		return
 	}
-	return next
+
+	logger.Printf("[fetcher] 🆕 %d pair baru dari token-profiles/boosts (Base+Aerodrome)", len(pairs))
+	select {
+	case f.out <- pairs:
+	default:
+	}
 }
 
-func (f *Fetcher) fetch() ([]DexPair, error) {
-	req, err := http.NewRequest(http.MethodGet, dexScreenerURL, nil)
+// collectNewBaseTokenAddresses mengambil daftar token address Base dari
+// token-profiles dan token-boosts (dedup, max 30).
+func (f *Fetcher) collectNewBaseTokenAddresses() []string {
+	seen := make(map[string]bool)
+	var addrs []string
+
+	for _, url := range []string{urlTokenProfiles, urlTokenBoosts} {
+		profiles, err := f.fetchTokenProfiles(url)
+		if err != nil {
+			continue
+		}
+		for _, p := range profiles {
+			if strings.ToLower(p.ChainID) != "base" {
+				continue
+			}
+			addr := strings.ToLower(p.TokenAddress)
+			if addr == "" || seen[addr] {
+				continue
+			}
+			seen[addr] = true
+			addrs = append(addrs, addr)
+			if len(addrs) >= 30 {
+				return addrs
+			}
+		}
+	}
+	return addrs
+}
+
+// fetchTokenProfiles mengambil daftar token dari endpoint token-profiles/boosts.
+func (f *Fetcher) fetchTokenProfiles(url string) ([]DexTokenProfile, error) {
+	resp, err := f.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d dari %s", resp.StatusCode, url)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var profiles []DexTokenProfile
+	if err := json.Unmarshal(body, &profiles); err != nil {
+		return nil, err
+	}
+	return profiles, nil
+}
+
+// fetchPairsForTokens mengambil pair data untuk daftar token address (batch),
+// lalu filter hanya pair Aerodrome di Base.
+func (f *Fetcher) fetchPairsForTokens(addrs []string) []DexPair {
+	// Batch: DexScreener mendukung comma-separated addresses
+	const batchSize = 30
+	var result []DexPair
+	seen := make(map[string]bool)
+
+	for i := 0; i < len(addrs); i += batchSize {
+		end := i + batchSize
+		if end > len(addrs) {
+			end = len(addrs)
+		}
+		batch := addrs[i:end]
+		url := urlTokensBase + strings.Join(batch, ",")
+
+		pairs, err := f.fetchSearch(url)
+		if err != nil {
+			continue
+		}
+		for _, p := range pairs {
+			key := strings.ToLower(p.PairAddress)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, p)
+			}
+		}
+
+		// Jangan terlalu cepat hit rate limit DexScreener
+		if end < len(addrs) {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return result
+}
+
+// fetchSearch melakukan GET ke URL DexScreener dan mengembalikan pair
+// yang sudah difilter: chainId=base & dexId=aerodrome.
+func (f *Fetcher) fetchSearch(url string) ([]DexPair, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -120,15 +251,13 @@ func (f *Fetcher) fetch() ([]DexPair, error) {
 	}
 	defer resp.Body.Close()
 
-	// Tangani rate limit (HTTP 429) — kembalikan sebagai error khusus
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := resp.Header.Get("Retry-After")
 		if retryAfter != "" {
 			return nil, fmt.Errorf("rate limit 429 (Retry-After: %s)", retryAfter)
 		}
-		return nil, fmt.Errorf("rate limit 429 — terlalu banyak request")
+		return nil, fmt.Errorf("rate limit 429")
 	}
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
@@ -143,7 +272,6 @@ func (f *Fetcher) fetch() ([]DexPair, error) {
 		return nil, err
 	}
 
-	// Filter: chainId == "base" && dexId == "aerodrome"
 	filtered := result.Pairs[:0]
 	for i := range result.Pairs {
 		p := &result.Pairs[i]
@@ -152,4 +280,15 @@ func (f *Fetcher) fetch() ([]DexPair, error) {
 		}
 	}
 	return filtered, nil
+}
+
+func (f *Fetcher) nextBackoff() time.Duration {
+	if f.backoff == 0 {
+		return backoffBase
+	}
+	next := f.backoff * 2
+	if next > backoffMax {
+		return backoffMax
+	}
+	return next
 }

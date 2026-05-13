@@ -42,6 +42,9 @@ func (a *APIServer) Routes() http.Handler {
                 mux.HandleFunc(p+"/api/trading-stats", a.handleTradingStats)
                 mux.HandleFunc(p+"/api/blacklist", a.handleBlacklist)
                 mux.HandleFunc(p+"/api/close-all", a.handleCloseAll)
+                mux.HandleFunc(p+"/api/manual-buy", a.handleManualBuy)
+                mux.HandleFunc(p+"/api/manual-sell", a.handleManualSell)
+                mux.HandleFunc(p+"/api/force-close", a.handleForceClose)
                 mux.HandleFunc(p+"/api/token/", a.handleTokenHistory) // /api/token/{addr}/history
                 mux.HandleFunc(p+"/health", a.handleHealth)
         }
@@ -128,6 +131,98 @@ func (a *APIServer) handleTokenHistory(w http.ResponseWriter, r *http.Request) {
         writeJSON(w, history)
 }
 
+// handleManualBuy memaksa beli token tertentu dari daftar yang di-track.
+// POST /api/manual-buy?pair=<pairAddress>
+func (a *APIServer) handleManualBuy(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+                http.Error(w, "gunakan POST", http.StatusMethodNotAllowed)
+                return
+        }
+        pairAddr := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("pair")))
+        if pairAddr == "" {
+                http.Error(w, "parameter 'pair' wajib diisi", http.StatusBadRequest)
+                return
+        }
+
+        t := a.cache.GetToken(pairAddr)
+        if t == nil {
+                http.Error(w, "token tidak ditemukan di cache — pastikan pair address benar", http.StatusNotFound)
+                return
+        }
+
+        pos, err := a.pm.ManualBuy(t)
+        if err != nil {
+                http.Error(w, "manual buy gagal: "+err.Error(), http.StatusInternalServerError)
+                return
+        }
+        writeJSON(w, map[string]any{
+                "status":   "ok",
+                "symbol":   t.Symbol,
+                "price":    t.Price,
+                "position": pos,
+        })
+}
+
+// handleManualSell memaksa jual posisi terbuka tertentu.
+// POST /api/manual-sell?pair=<pairAddress>
+func (a *APIServer) handleManualSell(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+                http.Error(w, "gunakan POST", http.StatusMethodNotAllowed)
+                return
+        }
+        pairAddr := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("pair")))
+        if pairAddr == "" {
+                http.Error(w, "parameter 'pair' wajib diisi", http.StatusBadRequest)
+                return
+        }
+
+        t := a.cache.GetToken(pairAddr)
+        if t == nil {
+                http.Error(w, "token tidak ditemukan di cache", http.StatusNotFound)
+                return
+        }
+
+        fill, err := a.pm.ManualSell(t)
+        if err != nil {
+                http.Error(w, "manual sell gagal: "+err.Error(), http.StatusInternalServerError)
+                return
+        }
+        writeJSON(w, map[string]any{
+                "status": "ok",
+                "symbol": t.Symbol,
+                "price":  t.Price,
+                "fill":   fill,
+        })
+}
+
+// handleForceClose menutup posisi di software TANPA eksekusi on-chain.
+// Gunakan saat sell gagal (pool CL, pool kosong, dll).
+// POST /api/force-close?pair=<pairAddress>&reason=<alasan>
+func (a *APIServer) handleForceClose(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+                http.Error(w, "gunakan POST", http.StatusMethodNotAllowed)
+                return
+        }
+        pairAddr := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("pair")))
+        if pairAddr == "" {
+                http.Error(w, "parameter 'pair' wajib diisi", http.StatusBadRequest)
+                return
+        }
+        reason := r.URL.Query().Get("reason")
+        if reason == "" {
+                reason = "FORCE CLOSE (pool tidak kompatibel)"
+        }
+        if err := a.pm.ForceClose(pairAddr, reason); err != nil {
+                http.Error(w, "force close gagal: "+err.Error(), http.StatusInternalServerError)
+                return
+        }
+        writeJSON(w, map[string]any{
+                "status": "ok",
+                "pair":   pairAddr,
+                "reason": reason,
+        })
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
         w.Header().Set("Content-Type", "application/json")
         enc := json.NewEncoder(w)
@@ -140,7 +235,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 func corsMiddleware(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 w.Header().Set("Access-Control-Allow-Origin", "*")
-                w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+                w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                 w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
                 if r.Method == http.MethodOptions {
                         w.WriteHeader(http.StatusNoContent)

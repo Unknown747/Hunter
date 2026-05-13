@@ -25,6 +25,7 @@ const (
         addrRouter  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"
         addrFactory = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"
         addrWETH    = "0x4200000000000000000000000000000000000006"
+        addrUSDC    = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         chainIDBase = int64(8453)
 )
 
@@ -216,6 +217,125 @@ func (e *LiveExecutor) calcGasUSD(receipt *types.Receipt) float64 {
         return weiToFloat64(gasWei) * e.ethPriceUSD()
 }
 
+// ─── Smart Route Finder ───────────────────────────────────────────────────────
+
+// findBestBuyRoute mencoba beberapa strategi route untuk ETH → TOKEN dan
+// mengembalikan route terbaik beserta estimasi output-nya.
+// Urutan prioritas:
+//  1. ETH → TOKEN langsung (volatile) — jika quoteToken adalah WETH
+//  2. ETH → TOKEN langsung (stable)
+//  3. ETH → USDC → TOKEN (dua hop, volatile–volatile)
+func (e *LiveExecutor) findBestBuyRoute(tokenAddr, quoteTokenAddr string) ([]AeroRoute, *big.Int) {
+        token := common.HexToAddress(tokenAddr)
+        weth := common.HexToAddress(addrWETH)
+        usdc := common.HexToAddress(addrUSDC)
+        factory := common.HexToAddress(addrFactory)
+
+        candidates := []struct {
+                label  string
+                routes []AeroRoute
+        }{
+                // 1. Langsung volatile (cocok untuk pair baru meme coin vs WETH)
+                {"WETH→TOKEN volatile", []AeroRoute{{From: weth, To: token, Stable: false, Factory: factory}}},
+                // 2. Langsung stable (beberapa token stablecoin-adjacent pakai stable pool)
+                {"WETH→TOKEN stable", []AeroRoute{{From: weth, To: token, Stable: true, Factory: factory}}},
+                // 3. Dua hop: WETH→USDC→TOKEN (untuk token yang hanya punya pair USDC)
+                {"WETH→USDC→TOKEN", []AeroRoute{
+                        {From: weth, To: usdc, Stable: false, Factory: factory},
+                        {From: usdc, To: token, Stable: false, Factory: factory},
+                }},
+                // 4. Dua hop stable leg kedua
+                {"WETH→USDC→TOKEN(stable)", []AeroRoute{
+                        {From: weth, To: usdc, Stable: false, Factory: factory},
+                        {From: usdc, To: token, Stable: true, Factory: factory},
+                }},
+        }
+
+        // Jika quote token diketahui BUKAN WETH, prioritaskan dua-hop via quote token
+        if quoteTokenAddr != "" && quoteTokenAddr != addrWETH && quoteTokenAddr != "" {
+                quoteAddr := common.HexToAddress(quoteTokenAddr)
+                hopViaQuote := []AeroRoute{
+                        {From: weth, To: quoteAddr, Stable: false, Factory: factory},
+                        {From: quoteAddr, To: token, Stable: false, Factory: factory},
+                }
+                // Sisipkan di depan kandidat lainnya
+                candidates = append([]struct {
+                        label  string
+                        routes []AeroRoute
+                }{{"WETH→QuoteToken→TOKEN", hopViaQuote}}, candidates...)
+        }
+
+        bestOut := big.NewInt(0)
+        bestRoutes := candidates[0].routes // fallback ke route pertama
+
+        for _, c := range candidates {
+                out, err := e.getAmountsOut(e.tradeSizeWei, c.routes)
+                if err != nil || out == nil || out.Sign() <= 0 {
+                        logger.Printf("[executor] route %s: tidak tersedia (%v)", c.label, err)
+                        continue
+                }
+                logger.Printf("[executor] route %s: estimasi output = %s", c.label, out.String())
+                if out.Cmp(bestOut) > 0 {
+                        bestOut = out
+                        bestRoutes = c.routes
+                }
+        }
+
+        return bestRoutes, bestOut
+}
+
+// findBestSellRoute mencoba beberapa strategi route untuk TOKEN → ETH.
+func (e *LiveExecutor) findBestSellRoute(tokenAddr, quoteTokenAddr string, amountIn *big.Int) ([]AeroRoute, *big.Int) {
+        token := common.HexToAddress(tokenAddr)
+        weth := common.HexToAddress(addrWETH)
+        usdc := common.HexToAddress(addrUSDC)
+        factory := common.HexToAddress(addrFactory)
+
+        candidates := []struct {
+                label  string
+                routes []AeroRoute
+        }{
+                {"TOKEN→WETH volatile", []AeroRoute{{From: token, To: weth, Stable: false, Factory: factory}}},
+                {"TOKEN→WETH stable", []AeroRoute{{From: token, To: weth, Stable: true, Factory: factory}}},
+                {"TOKEN→USDC→WETH", []AeroRoute{
+                        {From: token, To: usdc, Stable: false, Factory: factory},
+                        {From: usdc, To: weth, Stable: false, Factory: factory},
+                }},
+                {"TOKEN→USDC(stable)→WETH", []AeroRoute{
+                        {From: token, To: usdc, Stable: true, Factory: factory},
+                        {From: usdc, To: weth, Stable: false, Factory: factory},
+                }},
+        }
+
+        if quoteTokenAddr != "" && quoteTokenAddr != addrWETH {
+                quoteAddr := common.HexToAddress(quoteTokenAddr)
+                hopViaQuote := []AeroRoute{
+                        {From: token, To: quoteAddr, Stable: false, Factory: factory},
+                        {From: quoteAddr, To: weth, Stable: false, Factory: factory},
+                }
+                candidates = append([]struct {
+                        label  string
+                        routes []AeroRoute
+                }{{"TOKEN→QuoteToken→WETH", hopViaQuote}}, candidates...)
+        }
+
+        bestOut := big.NewInt(0)
+        bestRoutes := candidates[0].routes
+
+        for _, c := range candidates {
+                out, err := e.getAmountsOut(amountIn, c.routes)
+                if err != nil || out == nil || out.Sign() <= 0 {
+                        continue
+                }
+                if out.Cmp(bestOut) > 0 {
+                        bestOut = out
+                        bestRoutes = c.routes
+                }
+        }
+
+        return bestRoutes, bestOut
+}
+
 // ─── Buy ──────────────────────────────────────────────────────────────────────
 
 func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
@@ -223,23 +343,15 @@ func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
                 return Fill{}, fmt.Errorf("no token address for %s", t.Symbol)
         }
 
-        routes := []AeroRoute{{
-                From:    common.HexToAddress(addrWETH),
-                To:      common.HexToAddress(t.TokenAddress),
-                Stable:  false,
-                Factory: common.HexToAddress(addrFactory),
-        }}
-
-        expectedOut, err := e.getAmountsOut(e.tradeSizeWei, routes)
-        if err != nil {
-                logger.Printf("[executor] ⚠️  getAmountsOut failed for %s (no slippage guard): %v", t.Symbol, err)
-                expectedOut = big.NewInt(0)
-        }
+        routes, expectedOut := e.findBestBuyRoute(t.TokenAddress, t.QuoteTokenAddress)
         amountOutMin := applySlippage(expectedOut, e.slippagePct)
 
         if expectedOut.Sign() > 0 {
                 logger.Printf("[executor] BUY quote %s: expect %s tokens, min %s (slippage %.1f%%)",
                         t.Symbol, expectedOut.String(), amountOutMin.String(), e.slippagePct)
+
+        } else {
+                logger.Printf("[executor] ⚠️  BUY %s: semua route gagal estimasi, lanjut dengan amountOutMin=0", t.Symbol)
         }
 
         deadline := big.NewInt(time.Now().Add(60 * time.Second).Unix())
@@ -248,7 +360,7 @@ func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
                 return Fill{}, fmt.Errorf("pack buy: %w", err)
         }
 
-        txHash, err := e.sendTxWithRetry(common.HexToAddress(addrRouter), e.tradeSizeWei, data, 350_000)
+        txHash, err := e.sendTxWithRetry(common.HexToAddress(addrRouter), e.tradeSizeWei, data, 500_000)
         if err != nil {
                 return Fill{}, fmt.Errorf("send buy: %w", err)
         }
@@ -264,7 +376,7 @@ func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
         gasUSD := e.calcGasUSD(receipt)
         tradeUSD := weiToFloat64(e.tradeSizeWei) * e.ethPriceUSD()
 
-        logger.Printf("[executor] BUY tx=%s  token=%s  price=$%.6f  gas=$%.4f",
+        logger.Printf("[executor] ✅ BUY tx=%s  token=%s  price=$%.6f  gas=$%.4f",
                 txHash.Hex(), t.Symbol, t.Price, gasUSD)
 
         return Fill{
@@ -303,19 +415,14 @@ func (e *LiveExecutor) Sell(t *TokenInfo, pos *Position, fraction float64, reaso
                 amountToSell = af
         }
 
-        routes := []AeroRoute{{
-                From:    tokenAddr,
-                To:      common.HexToAddress(addrWETH),
-                Stable:  false,
-                Factory: common.HexToAddress(addrFactory),
-        }}
-
-        expectedOut, err := e.getAmountsOut(amountToSell, routes)
-        if err != nil {
-                logger.Printf("[executor] ⚠️  getAmountsOut failed for %s sell (no slippage guard): %v", t.Symbol, err)
-                expectedOut = big.NewInt(0)
-        }
+        routes, expectedOut := e.findBestSellRoute(t.TokenAddress, t.QuoteTokenAddress, amountToSell)
         amountOutMin := applySlippage(expectedOut, e.slippagePct)
+
+        if expectedOut.Sign() > 0 {
+                logger.Printf("[executor] SELL quote %s: estimasi ETH keluar = %s wei", t.Symbol, expectedOut.String())
+        } else {
+                logger.Printf("[executor] ⚠️  SELL %s: semua route gagal estimasi, lanjut dengan amountOutMin=0", t.Symbol)
+        }
 
         // 1. Approve
         approveData, err := e.eABI.Pack("approve", common.HexToAddress(addrRouter), amountToSell)
@@ -339,7 +446,7 @@ func (e *LiveExecutor) Sell(t *TokenInfo, pos *Position, fraction float64, reaso
                 return Fill{}, fmt.Errorf("pack sell: %w", err)
         }
 
-        txHash, err := e.sendTxWithRetry(common.HexToAddress(addrRouter), big.NewInt(0), swapData, 350_000)
+        txHash, err := e.sendTxWithRetry(common.HexToAddress(addrRouter), big.NewInt(0), swapData, 500_000)
         if err != nil {
                 return Fill{}, fmt.Errorf("send sell: %w", err)
         }

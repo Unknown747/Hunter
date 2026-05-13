@@ -291,6 +291,189 @@ func (pm *PositionManager) CloseAll(reason string) int {
         return closed
 }
 
+// ManualBuy memaksa beli token tertentu tanpa melewati filter strategi.
+// Digunakan untuk testing nyata via /api/manual-buy.
+func (pm *PositionManager) ManualBuy(t *TokenInfo) (*Position, error) {
+        pm.mu.RLock()
+        already := pm.hasOpenFor(t.PairAddress)
+        pm.mu.RUnlock()
+
+        if already {
+                return nil, fmt.Errorf("sudah ada posisi terbuka untuk %s", t.Symbol)
+        }
+
+        logger.Printf("[trader] 🛒 MANUAL BUY %s @ $%.6f (pair=%s)", t.Symbol, t.Price, t.PairAddress)
+
+        fill, err := pm.exec.Buy(t, pm.cfg.TradeSizeUSD)
+        if err != nil {
+                return nil, fmt.Errorf("buy gagal: %w", err)
+        }
+
+        pm.mu.Lock()
+        defer pm.mu.Unlock()
+
+        pos := &Position{
+                ID:            newID(),
+                PairAddress:   t.PairAddress,
+                TokenAddress:  t.TokenAddress,
+                Symbol:        t.Symbol,
+                EntryPrice:    fill.Price,
+                EntryVolume:   t.Volume24h,
+                CurrentPrice:  fill.Price,
+                HighWaterMark: fill.Price,
+                SizeUSD:       pm.cfg.TradeSizeUSD,
+                RemainingPct:  100,
+                EntryTime:     time.Now(),
+                Status:        PositionOpen,
+                GasCostUSD:    fill.GasUSD,
+                Fills:         []Fill{fill},
+        }
+        pm.positions[pos.ID] = pos
+
+        logger.Printf("[trader] ✅ MANUAL BUY berhasil %s | tx=%s | price=$%.6f | gas=$%.4f",
+                t.Symbol, fill.TxHash, fill.Price, fill.GasUSD)
+
+        return pos, nil
+}
+
+// ManualSell memaksa jual semua posisi terbuka untuk token tertentu.
+// Digunakan untuk testing nyata via /api/manual-sell.
+func (pm *PositionManager) ManualSell(t *TokenInfo) (Fill, error) {
+        pm.mu.RLock()
+        var target *Position
+        for _, p := range pm.positions {
+                if p.PairAddress == t.PairAddress && p.Status == PositionOpen {
+                        target = p
+                        break
+                }
+        }
+        pm.mu.RUnlock()
+
+        if target == nil {
+                return Fill{}, fmt.Errorf("tidak ada posisi terbuka untuk %s", t.Symbol)
+        }
+
+        logger.Printf("[trader] 💰 MANUAL SELL %s @ $%.6f (posisi=%s)", t.Symbol, t.Price, target.ID)
+
+        fill, err := pm.exec.Sell(t, target, 1.0, "MANUAL SELL")
+        if err != nil {
+                return Fill{}, fmt.Errorf("sell gagal: %w", err)
+        }
+
+        pm.mu.Lock()
+        defer pm.mu.Unlock()
+
+        fill.Reason = "MANUAL SELL"
+        target.Fills = append(target.Fills, fill)
+        target.GasCostUSD += fill.GasUSD
+        target.PnLPercent = (fill.Price/target.EntryPrice - 1) * 100
+        target.RealizedUSD += fill.USD - (target.SizeUSD * target.RemainingPct / 100.0)
+        target.Status = PositionClosed
+        target.ExitReason = "MANUAL SELL"
+        target.RemainingPct = 0
+
+        netPnL := target.RealizedUSD - target.GasCostUSD
+
+        buyTx, sellTx := "", ""
+        for _, f := range target.Fills {
+                if f.Action == "BUY" && buyTx == "" {
+                        buyTx = f.TxHash
+                }
+                if f.Action == "SELL" {
+                        sellTx = f.TxHash
+                }
+        }
+
+        log := &TradeLog{
+                ID:          target.ID,
+                PairAddress: target.PairAddress,
+                Symbol:      target.Symbol,
+                EntryPrice:  target.EntryPrice,
+                ExitPrice:   fill.Price,
+                SizeUSD:     target.SizeUSD,
+                PnLPercent:  target.PnLPercent,
+                PnLUSD:      target.RealizedUSD,
+                GasCostUSD:  target.GasCostUSD,
+                NetPnLUSD:   netPnL,
+                Duration:    fmtDuration(time.Since(target.EntryTime)),
+                ExitReason:  "MANUAL SELL",
+                BuyTxHash:   buyTx,
+                SellTxHash:  sellTx,
+                OpenTime:    target.EntryTime,
+                CloseTime:   time.Now(),
+        }
+        pm.trades = append([]*TradeLog{log}, pm.trades...)
+        if len(pm.trades) > maxTradeLog {
+                pm.trades = pm.trades[:maxTradeLog]
+        }
+
+        mark := "🔴"
+        if target.PnLPercent > 0 {
+                mark = "🟢"
+        }
+        logger.Printf("[trader] %s MANUAL SELL selesai %s | pnl=%.2f%% | net=$%.4f | gas=$%.4f | buy_tx=%s | sell_tx=%s",
+                mark, t.Symbol, target.PnLPercent, netPnL, target.GasCostUSD, buyTx, sellTx)
+
+        return fill, nil
+}
+
+// ForceClose menutup posisi di software TANPA eksekusi on-chain.
+// Gunakan untuk posisi yang gagal dijual (pool kosong, CL pool, dll).
+func (pm *PositionManager) ForceClose(pairAddr, reason string) error {
+        pm.mu.Lock()
+        defer pm.mu.Unlock()
+
+        var target *Position
+        for _, p := range pm.positions {
+                if p.PairAddress == pairAddr && p.Status == PositionOpen {
+                        target = p
+                        break
+                }
+        }
+        if target == nil {
+                return fmt.Errorf("posisi terbuka tidak ditemukan untuk pair %s", pairAddr)
+        }
+
+        target.Status = PositionClosed
+        target.PnLPercent = (target.CurrentPrice/target.EntryPrice - 1) * 100
+        target.RealizedUSD = 0
+        netPnL := target.RealizedUSD - target.GasCostUSD
+
+        buyTx := ""
+        for _, f := range target.Fills {
+                if f.Action == "BUY" {
+                        buyTx = f.TxHash
+                }
+        }
+
+        log := &TradeLog{
+                ID:          target.ID,
+                PairAddress: target.PairAddress,
+                Symbol:      target.Symbol,
+                EntryPrice:  target.EntryPrice,
+                ExitPrice:   target.CurrentPrice,
+                SizeUSD:     target.SizeUSD,
+                PnLPercent:  target.PnLPercent,
+                PnLUSD:      target.RealizedUSD,
+                GasCostUSD:  target.GasCostUSD,
+                NetPnLUSD:   netPnL,
+                Duration:    fmtDuration(time.Since(target.EntryTime)),
+                ExitReason:  reason,
+                BuyTxHash:   buyTx,
+                SellTxHash:  "",
+                OpenTime:    target.EntryTime,
+                CloseTime:   time.Now(),
+        }
+        pm.trades = append([]*TradeLog{log}, pm.trades...)
+        if len(pm.trades) > maxTradeLog {
+                pm.trades = pm.trades[:maxTradeLog]
+        }
+
+        logger.Printf("[trader] ⚠️  FORCE CLOSE %s | reason=%s | entry=$%.6f | gas=$%.4f | buy_tx=%s",
+                target.Symbol, reason, target.EntryPrice, target.GasCostUSD, buyTx)
+        return nil
+}
+
 // AllPositions mengembalikan semua posisi, terbaru di depan.
 func (pm *PositionManager) AllPositions() []*Position {
         pm.mu.RLock()

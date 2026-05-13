@@ -1,6 +1,117 @@
 {
-  "positions": {},
-  "trades": [],
+  "positions": {
+    "2efa18dc": {
+      "id": "2efa18dc",
+      "pairAddress": "0x6b0f53cbd9272d8117e9535fe25371dedf39a1be",
+      "tokenAddress": "0xbf927b841994731c573bdf09ceb0c6b0aa887cdd",
+      "symbol": "VELVET",
+      "entryPrice": 0.1114,
+      "entryVolume": 280539.6,
+      "currentPrice": 0.1126,
+      "sizeUSD": 1,
+      "remainingPct": 100,
+      "entryTime": "2026-05-13T12:58:51.663756098Z",
+      "status": "CLOSED",
+      "pnlPercent": 1.0771992818671583,
+      "realizedUSD": 0,
+      "tp1Hit": false,
+      "highWaterMark": 0.1127,
+      "gasCostUSD": 0.0068956218155099515,
+      "fills": [
+        {
+          "action": "BUY",
+          "price": 0.1114,
+          "pctOfPos": 100,
+          "usd": 0.2271590456,
+          "pnlPct": 0,
+          "gasUSD": 0.0068956218155099515,
+          "reason": "entry",
+          "txHash": "0x4dd425616b11c15456b9b976fc4a90856a7fcee3bc63d710dc9ab9b90c3511cb",
+          "timestamp": "2026-05-13T12:58:51.663751138Z"
+        }
+      ]
+    },
+    "bd6c3727": {
+      "id": "bd6c3727",
+      "pairAddress": "0x34e3334e845d101205394e0bd8821fddc7cd5559",
+      "tokenAddress": "0x6b2504a03ca4d43d0d73776f6ad46dab2f2a4cfd",
+      "symbol": "REI",
+      "entryPrice": 0.02578,
+      "entryVolume": 179096.36,
+      "currentPrice": 0.02437,
+      "sizeUSD": 1,
+      "remainingPct": 0,
+      "entryTime": "2026-05-13T12:53:53.442311231Z",
+      "status": "CLOSED",
+      "pnlPercent": -5.4693560899922495,
+      "realizedUSD": -0.0546935608999225,
+      "exitReason": "MANUAL SELL",
+      "tp1Hit": false,
+      "highWaterMark": 0.02578,
+      "gasCostUSD": 0.008019696270855574,
+      "fills": [
+        {
+          "action": "BUY",
+          "price": 0.02578,
+          "pctOfPos": 100,
+          "usd": 0.2271590049,
+          "pnlPct": 0,
+          "gasUSD": 0.0043798255143963115,
+          "reason": "entry",
+          "txHash": "0x450dd12c471bd31a703f4907346ed36151b09f76bc04baceb8d177a94421b2cf",
+          "timestamp": "2026-05-13T12:53:53.442307291Z"
+        },
+        {
+          "action": "SELL",
+          "price": 0.02437,
+          "pctOfPos": 100,
+          "usd": 0.9453064391000775,
+          "pnlPct": -5.4693560899922495,
+          "gasUSD": 0.003639870756459263,
+          "reason": "MANUAL SELL",
+          "txHash": "0x33bc1a636fdbda433ac9bbdc03d21951b4c57979fbbbcbc7a8dd38f022a3c63b",
+          "timestamp": "2026-05-13T12:58:32.509894339Z"
+        }
+      ]
+    }
+  },
+  "trades": [
+    {
+      "id": "2efa18dc",
+      "pairAddress": "0x6b0f53cbd9272d8117e9535fe25371dedf39a1be",
+      "symbol": "VELVET",
+      "entryPrice": 0.1114,
+      "exitPrice": 0.1126,
+      "sizeUSD": 1,
+      "pnlPercent": 1.0771992818671583,
+      "pnlUSD": 0,
+      "gasCostUSD": 0.0068956218155099515,
+      "netPnLUSD": -0.0068956218155099515,
+      "duration": "8m 58s",
+      "exitReason": "Pool Aerodrome VELVET/USDC hampir kosong (CL pair)",
+      "buyTxHash": "0x4dd425616b11c15456b9b976fc4a90856a7fcee3bc63d710dc9ab9b90c3511cb",
+      "openTime": "2026-05-13T12:58:51.663756098Z",
+      "closeTime": "2026-05-13T13:07:49.794518556Z"
+    },
+    {
+      "id": "bd6c3727",
+      "pairAddress": "0x34e3334e845d101205394e0bd8821fddc7cd5559",
+      "symbol": "REI",
+      "entryPrice": 0.02578,
+      "exitPrice": 0.02437,
+      "sizeUSD": 1,
+      "pnlPercent": -5.4693560899922495,
+      "pnlUSD": -0.0546935608999225,
+      "gasCostUSD": 0.008019696270855574,
+      "netPnLUSD": -0.06271325717077808,
+      "duration": "4m 39s",
+      "exitReason": "MANUAL SELL",
+      "buyTxHash": "0x450dd12c471bd31a703f4907346ed36151b09f76bc04baceb8d177a94421b2cf",
+      "sellTxHash": "0x33bc1a636fdbda433ac9bbdc03d21951b4c57979fbbbcbc7a8dd38f022a3c63b",
+      "openTime": "2026-05-13T12:53:53.442311231Z",
+      "closeTime": "2026-05-13T12:58:32.509898359Z"
+    }
+  ],
   "blacklist": {},
-  "savedAt": "2026-05-13T12:39:47.632160462Z"
+  "savedAt": "2026-05-13T13:18:40.409263588Z"
 }

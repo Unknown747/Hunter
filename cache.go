@@ -227,6 +227,18 @@ func (c *Cache) HotPairs(n int) []*TokenInfo {
         return list[:n]
 }
 
+// GetToken mengembalikan satu token berdasarkan pair address, atau nil jika tidak ada.
+func (c *Cache) GetToken(pairAddress string) *TokenInfo {
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+        t, ok := c.tokens[pairAddress]
+        if !ok {
+                return nil
+        }
+        cp := *t
+        return &cp
+}
+
 // TokenHistory mengembalikan riwayat score snapshot untuk pair tertentu.
 func (c *Cache) TokenHistory(pairAddress string) []ScoreSnapshot {
         c.mu.RLock()
