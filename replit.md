@@ -22,6 +22,7 @@ go.mod           ← Go module
 static/
   index.html     ← dark dashboard (tabbed, realtime)
 install.sh       ← installer otomatis untuk VPS
+update.sh        ← auto-update dari GitHub + graceful reload (zero rebuild downtime)
 .env.example     ← template konfigurasi environment
 LIVE_TRADING.md  ← panduan live trading on-chain
 ```
@@ -85,23 +86,27 @@ Installer akan otomatis:
 - likuiditas ≥ $15k, umur token 5–90 menit
 - pricePump5m ≤ 60% (hindari top-buy)
 
+**Entry guard tambahan:**
+- Token < 10 menit: buyRatio ≥ 0.72 & pump5m ≤ 40% (threshold lebih ketat)
+- Token > 15 menit: vol/liq ratio ≥ 0.08 (pastikan ada aktivitas trading nyata)
+
 **Exit:**
 - TP1: +15% → jual 50%
-- TP2: +35% → tutup semua
+- TP2: +28% → tutup semua (realistis dalam 20 menit)
 - SL: -8% → tutup semua
 - Trailing stop: aktif setelah +7%, stop jika turun 7% dari high
-- Emergency: buyRatio < 0.48, dump mendadak -12% dalam 5m, volume turun >80%
-- Time exit: hold ≥ 10 menit & profit < 3%
+- Emergency: buyRatio < 0.48, dump mendadak -12% dalam 5m, volume turun >70%
+- Time exit: hold ≥ 20 menit & profit < 5%
 
 **Posisi:** maks 3 terbuka, $1 per trade (paper mode default)
 
 ### Mode Conservative (`RISK_LEVEL=conservative`)
 - Entry: score ≥ 80, buyRatio ≥ 0.68, spike ≥ 2.5x, liq ≥ $25k, umur 7–60 menit, pump5m ≤ 40%
-- Exit: TP1 +12%, TP2 +30%, SL -6%, trailing 5%, hold max 7 menit
+- Exit: TP1 +12%, TP2 +22%, SL -6%, trailing 5%, hold max 12 menit
 
 ### Mode Aggressive (`RISK_LEVEL=aggressive`)
 - Entry: score ≥ 62, buyRatio ≥ 0.58, spike ≥ 1.5x, liq ≥ $10k, umur 3–90 menit, pump5m ≤ 80%
-- Exit: TP1 +20%, TP2 +60%, SL -12%, trailing 10%, hold max 15 menit
+- Exit: TP1 +20%, TP2 +50%, SL -12%, trailing 10%, hold max 25 menit
 
 ## Mode Trading
 
@@ -119,6 +124,37 @@ PORT=8080 ./meme-hunter
 
 Lihat `LIVE_TRADING.md` untuk panduan lengkap eksekusi on-chain.
 
+## Update Otomatis dari GitHub
+
+```bash
+# Update ke versi terbaru (pull + rebuild + graceful restart)
+sudo bash /opt/meme-hunter/update.sh
+
+# Cek apakah ada update tersedia (tanpa eksekusi)
+sudo bash /opt/meme-hunter/update.sh --dry-run
+
+# Rollback ke versi sebelumnya jika ada masalah
+sudo bash /opt/meme-hunter/update.sh --rollback
+
+# Build ulang saja tanpa restart service
+sudo bash /opt/meme-hunter/update.sh --no-restart
+```
+
+**Alur update (zero rebuild downtime):**
+1. `git pull` → ambil kode terbaru dari GitHub
+2. `go build` → kompilasi binary baru ke file `.new` (service lama tetap jalan)
+3. Binary lama dicopy ke `.prev` (backup rollback)
+4. `mv` atomik: swap `.new` → binary aktif
+5. `systemctl restart` → SIGTERM → bot simpan state/posisi → start ulang dengan binary baru
+6. Health check ke `/api/stats` untuk konfirmasi API naik
+
+**Auto-update via cron (opsional):**
+```bash
+# Update otomatis setiap hari jam 04:00 (saat market sepi)
+echo "0 4 * * * root bash /opt/meme-hunter/update.sh >> /opt/meme-hunter/update.log 2>&1" \
+  | sudo tee /etc/cron.d/meme-hunter-update
+```
+
 ## Perintah VPS Setelah Instalasi
 
 ```bash
@@ -128,7 +164,7 @@ systemctl status meme-hunter
 # Lihat log realtime
 journalctl -u meme-hunter -f
 
-# Restart
+# Restart manual
 systemctl restart meme-hunter
 
 # Edit konfigurasi (PORT, PRIVATE_KEY, dll)
@@ -137,6 +173,9 @@ systemctl restart meme-hunter
 
 # Hentikan service
 systemctl stop meme-hunter
+
+# Lihat riwayat update
+cat /opt/meme-hunter/update.log
 ```
 
 ## Arsitektur
