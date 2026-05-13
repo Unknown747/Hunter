@@ -204,29 +204,36 @@ type StrategyConfig struct {
 }
 
 // DefaultConfig mengembalikan strategi EARLY_MOMENTUM_SCALP (normal).
+// Dioptimalkan untuk scalping meme coin listing baru (< 2 jam).
 func DefaultConfig() *StrategyConfig {
         return &StrategyConfig{
-                MinScore:            75,
-                MinBuyRatio:         0.65,
-                MinVolumeSpike:      2.0,
-                MinLiquidityUSD:     15000,
-                MinAgeMinutes:       5,
-                MaxAgeMinutes:       90,
-                MaxPricePump5m:      120,
-                TP1Pct:              12,
-                TP1SellFrac:         0.5,
-                TP2Pct:              25,
-                StopLossPct:         -10,
-                TrailingStopPct:     8,
-                TrailingActivatePct: 8,
-                EmergencyBuyRatio:   0.50,
-                SuddenDumpThreshold: -15,
-                VolumeDropFraction:  0.5,
-                MaxHoldMinutes:      8,
-                MinProfitForHold:    5,
-                TradeSizeUSD:        1.0,
-                MaxOpenTrades:       3,
-                RiskLevel:           "normal",
+                // ── Entry conditions ────────────────────────────────────────────────
+                MinScore:        70,    // lebih inklusif — scorer baru sudah lebih selektif
+                MinBuyRatio:     0.62,  // minimal 62% transaksi adalah buy
+                MinVolumeSpike:  1.5,   // 1.5x dari volume pertama terlihat (realistis untuk listing baru)
+                MinLiquidityUSD: 15000, // min $15k likuiditas untuk masuk
+                MinAgeMinutes:   3,     // masuk lebih awal: 3 menit (anti-rug tetap aktif)
+                MaxAgeMinutes:   90,    // max 90 menit (masih dalam window 2 jam)
+                MaxPricePump5m:  80,    // hindari token yang sudah pump > 80% dalam 5m
+                // ── Exit: Take Profit ───────────────────────────────────────────────
+                TP1Pct:      15,  // TP1: +15% → jual 50% (lebih baik dari 12%)
+                TP1SellFrac: 0.5, // jual 50% saat TP1
+                TP2Pct:      35,  // TP2: +35% → tutup semua (biarkan winner berjalan)
+                // ── Exit: Stop Loss ─────────────────────────────────────────────────
+                StopLossPct:         -8, // SL lebih ketat: -8% (dari -10%)
+                TrailingStopPct:     7,  // trailing stop 7% dari high water mark
+                TrailingActivatePct: 7,  // aktifkan trailing setelah profit 7%
+                // ── Exit: Emergency ─────────────────────────────────────────────────
+                EmergencyBuyRatio:   0.48, // exit darurat jika buy ratio < 48%
+                SuddenDumpThreshold: -12,  // exit darurat jika dump > 12% dalam 5m
+                VolumeDropFraction:  0.40, // exit jika volume turun > 60% dari entry
+                // ── Exit: Time ──────────────────────────────────────────────────────
+                MaxHoldMinutes:   6, // max hold 6 menit jika tidak ada profit (scalping ketat)
+                MinProfitForHold: 3, // butuh min 3% profit untuk hold lebih dari 6 menit
+                // ── Position sizing ─────────────────────────────────────────────────
+                TradeSizeUSD:  1.0, // $1 per trade (paper mode default)
+                MaxOpenTrades: 3,   // max 3 posisi terbuka bersamaan
+                RiskLevel:     "normal",
         }
 }
 
@@ -236,26 +243,43 @@ func ConfigForRisk(level string) *StrategyConfig {
         cfg := DefaultConfig()
         switch level {
         case "conservative":
-                cfg.MinScore = 85
-                cfg.MinBuyRatio = 0.70
-                cfg.MinLiquidityUSD = 30000
+                // Selektif maksimal — hanya token dengan confidence tinggi
+                cfg.MinScore = 80
+                cfg.MinBuyRatio = 0.68
+                cfg.MinVolumeSpike = 2.0
+                cfg.MinLiquidityUSD = 25000
+                cfg.MinAgeMinutes = 5
                 cfg.MaxAgeMinutes = 60
-                cfg.StopLossPct = -7
+                cfg.MaxPricePump5m = 50
+                cfg.TP1Pct = 12
+                cfg.TP2Pct = 25
+                cfg.StopLossPct = -6
                 cfg.TrailingStopPct = 5
                 cfg.TrailingActivatePct = 5
-                cfg.EmergencyBuyRatio = 0.55
+                cfg.EmergencyBuyRatio = 0.52
+                cfg.SuddenDumpThreshold = -10
+                cfg.VolumeDropFraction = 0.35
+                cfg.MaxHoldMinutes = 5
                 cfg.MaxOpenTrades = 2
                 cfg.RiskLevel = "conservative"
         case "aggressive":
-                cfg.MinScore = 65
-                cfg.MinBuyRatio = 0.60
+                // Lebih banyak peluang, risiko lebih tinggi
+                cfg.MinScore = 60
+                cfg.MinBuyRatio = 0.58
+                cfg.MinVolumeSpike = 1.2
                 cfg.MinLiquidityUSD = 10000
-                cfg.MaxAgeMinutes = 120
-                cfg.MaxPricePump5m = 150
-                cfg.StopLossPct = -15
-                cfg.TrailingStopPct = 12
-                cfg.TrailingActivatePct = 12
-                cfg.EmergencyBuyRatio = 0.45
+                cfg.MinAgeMinutes = 2
+                cfg.MaxAgeMinutes = 110
+                cfg.MaxPricePump5m = 100
+                cfg.TP1Pct = 20
+                cfg.TP2Pct = 50
+                cfg.StopLossPct = -12
+                cfg.TrailingStopPct = 10
+                cfg.TrailingActivatePct = 10
+                cfg.EmergencyBuyRatio = 0.42
+                cfg.SuddenDumpThreshold = -15
+                cfg.VolumeDropFraction = 0.45
+                cfg.MaxHoldMinutes = 10
                 cfg.MaxOpenTrades = 5
                 cfg.RiskLevel = "aggressive"
         default:

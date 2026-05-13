@@ -252,7 +252,7 @@ func (e *LiveExecutor) findBestBuyRoute(tokenAddr, quoteTokenAddr string) ([]Aer
         }
 
         // Jika quote token diketahui BUKAN WETH, prioritaskan dua-hop via quote token
-        if quoteTokenAddr != "" && quoteTokenAddr != addrWETH && quoteTokenAddr != "" {
+        if quoteTokenAddr != "" && quoteTokenAddr != addrWETH {
                 quoteAddr := common.HexToAddress(quoteTokenAddr)
                 hopViaQuote := []AeroRoute{
                         {From: weth, To: quoteAddr, Stable: false, Factory: factory},
