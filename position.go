@@ -457,7 +457,14 @@ func (pm *PositionManager) ForceClose(pairAddr, reason string) error {
 
         target.Status = PositionClosed
         target.PnLPercent = (target.CurrentPrice/target.EntryPrice - 1) * 100
-        target.RealizedUSD = 0
+        // Estimasi realized P&L dari harga terakhir yang diketahui.
+        // ForceClose tidak ada transaksi on-chain — hitung dari sisa posisi.
+        if target.EntryPrice > 0 && target.CurrentPrice > 0 {
+                remainingFrac := target.RemainingPct / 100.0
+                saleValue := target.SizeUSD * remainingFrac * (target.CurrentPrice / target.EntryPrice)
+                costBasis := target.SizeUSD * remainingFrac
+                target.RealizedUSD += saleValue - costBasis
+        }
         netPnL := target.RealizedUSD - target.GasCostUSD
 
         buyTx := ""
