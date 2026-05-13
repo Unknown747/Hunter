@@ -1,64 +1,94 @@
 # Base Meme Coin Hunter Engine
 
-Real-time monitoring engine that detects early meme coin opportunities on Base network (Aerodrome DEX) using a channel-based Go pipeline.
+Real-time monitoring + auto-trading engine untuk meme coin di Base network (Aerodrome DEX) via DexScreener API.
 
-## Run & Operate
+## Struktur Proyek
 
-- `cd hunter && go run .` — run the hunter engine (port 8080 on VPS, 8099 on Replit)
-- `cd hunter && go build -o hunter-engine . && ./hunter-engine` — build & run binary
-- Dashboard: http://localhost:8080/ (VPS) or /hunter/ (Replit preview)
-- Required env: `PORT` — HTTP port (default: 8080)
+```
+hunter/          ← seluruh source Go
+  main.go        ← entry point + pipeline orchestration
+  fetcher.go     ← DexScreener HTTP ingestion
+  normalizer.go  ← raw → TokenInfo struct
+  filter.go      ← 3-layer filter engine
+  scorer.go      ← 0-100 weighted scoring
+  signal.go      ← NEW_LISTING / MOMENTUM / BREAKOUT detection
+  cache.go       ← in-memory state + VolumeSpike calculation
+  strategy.go    ← entry/exit rule engine (CheckEntry / CheckExit)
+  executor.go    ← PaperExecutor + LiveExecutor (Base + Aerodrome)
+  position.go    ← PositionManager (open/close/monitor trades)
+  api.go         ← REST endpoints + CORS
+  stats.go       ← uptime/cycle counters
+  types.go       ← semua shared structs
+  go.mod         ← Go module
+  static/
+    index.html   ← dark dashboard (tabbed, realtime)
+  LIVE_TRADING.md ← panduan live trading on-chain
+```
+
+## Run
+
+```bash
+# Replit (preview di /hunter/)
+cd hunter && PORT=8099 go run .
+
+# VPS
+cd hunter
+go build -o hunter-engine .
+PORT=8080 ./hunter-engine
+```
 
 ## Stack
 
-- Go 1.21, net/http (no framework)
-- Event-driven channel pipeline
+- Go 1.21, `net/http` (no framework)
 - DexScreener API (search endpoint)
 - TailwindCSS CDN + Vanilla JS dashboard
+- Channel-based pipeline (no locks on hot path)
 
-## Where things live
+## API Endpoints
 
-- `hunter/` — Go source (all pipeline stages)
-  - `main.go` — entry point + pipeline orchestration
-  - `fetcher.go` — DexScreener HTTP ingestion
-  - `normalizer.go` — raw → TokenInfo struct
-  - `filter.go` — 3-layer filter engine
-  - `scorer.go` — 0-100 weighted scoring
-  - `signal.go` — NEW_LISTING / MOMENTUM / BREAKOUT detection
-  - `cache.go` — in-memory state with TTL cleanup
-  - `api.go` — REST endpoints + CORS
-  - `stats.go` — uptime/cycle counters
-  - `types.go` — shared structs
-  - `static/index.html` — real-time dashboard (dark, tabbed UI)
-  - `go.mod` — Go module
+| Endpoint              | Deskripsi |
+|-----------------------|-----------|
+| GET /api/tokens       | Semua token (sorted by score) |
+| GET /api/gems         | Token kategori GEM (score ≥ 75) |
+| GET /api/top          | Top 20 by score |
+| GET /api/signals      | Signal log (NEW_LISTING, MOMENTUM, BREAKOUT) |
+| GET /api/stats        | Engine stats (uptime, cycles, poll interval) |
+| GET /api/movers       | Top 10 by 5m price change |
+| GET /api/hot          | Top 10 by volume/liquidity ratio |
+| GET /api/positions    | Semua posisi (open + closed) |
+| GET /api/trades       | Trade log (closed positions) |
+| GET /api/trading-stats | Win rate, P&L, open trades |
 
-## Architecture decisions
+## Strategi Trading (EARLY_MOMENTUM_SCALP)
 
-- Channel-based pipeline: Fetcher → rawPairs channel → single pipeline goroutine (Normalizer+Filter+Scorer+Signal+Cache) — avoids locking overhead on the hot path
-- DexScreener search endpoint (`?q=aerodrome`) is the only working bulk query; `/pairs/base` returns 404
-- Adaptive polling: 3s when >200 pairs found, 8s otherwise — reduces load on low-activity periods
-- In-memory cache only (no DB) — optimized for low-RAM VPS (< 50MB at steady state)
-- Both `/hunter/*` and bare `/*` paths served — works behind Replit proxy and standalone on VPS
+**Entry (semua harus terpenuhi):**
+- score ≥ 75, buyRatio ≥ 0.65, volumeSpike ≥ 2x
+- liquidity ≥ $15k, age 5–90 menit
+- pricePump5m ≤ 120%
 
-## Product
+**Exit:**
+- TP1: +12% → sell 50%
+- TP2: +25% → close semua
+- SL: -10% → close semua
+- Emergency: buyRatio < 0.50, sudden dump -15%, volume drop
+- Time exit: hold ≥ 8 menit & profit < 5%
 
-- Tracks Base/Aerodrome pairs in real-time via DexScreener
-- Filters: liquidity ≥ $8k, volume24h ≥ $12k, age ≤ 12h, anti-rug heuristics
-- Scores 0–100: Early Age (25%) + Volume (25%) + Buy Pressure (20%) + Liquidity (15%) + Price Trend (15%)
-- Signal detection: NEW_LISTING, MOMENTUM, BREAKOUT with 5-min cooldown
-- Dashboard tabs: All Tokens / Gems / Signals / Top Movers / Hot Pairs
+**Position:** max 3 open, $1 per trade (paper mode default)
 
-## User preferences
+## Mode Trading
 
-- Golang backend, no heavy frameworks
-- Optimized for 1 core / 1GB RAM VPS
-- Must be upgradeable to on-chain listener
+```bash
+# Paper trading (default, aman)
+PORT=8080 ./hunter-engine
 
-## Gotchas
+# Live trading on-chain (Base + Aerodrome)
+LIVE_TRADING=true \
+PRIVATE_KEY=your_hex_key \
+BASE_RPC_URL=https://mainnet.base.org \
+PORT=8080 ./hunter-engine
+```
 
-- DexScreener search API has rate limits — keep polling interval ≥ 3s
-- Port 8080 is used by Replit's API server; use PORT=8099 on Replit
-- Pairs with pairCreatedAt=0 get ageHours=0 (treated as brand new — slight false positive risk)
+Lihat `LIVE_TRADING.md` untuk setup lengkap on-chain execution.
 
 ## VPS Deployment
 
@@ -68,14 +98,11 @@ wget https://go.dev/dl/go1.21.13.linux-amd64.tar.gz
 sudo tar -C /usr/local -xzf go1.21.13.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && source ~/.bashrc
 
-# 2. Clone / upload the hunter directory
-git clone <your-repo> && cd <repo>/hunter
-# or: scp -r hunter/ user@vps:~/hunter/
-
-# 3. Build binary
+# 2. Build
+cd hunter
 go build -o hunter-engine .
 
-# 4. Run (as service with systemd)
+# 3. Run sebagai service
 sudo tee /etc/systemd/system/hunter.service > /dev/null <<EOF
 [Unit]
 Description=Base Meme Coin Hunter
@@ -95,20 +122,19 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable hunter
 sudo systemctl start hunter
-sudo systemctl status hunter
-
-# 5. Access dashboard
-# http://YOUR_VPS_IP:8080/
 ```
 
-## API Reference
+## Arsitektur
 
-| Endpoint | Description |
-|---|---|
-| GET /api/tokens | All tracked tokens (sorted by score) |
-| GET /api/gems | Only GEM-category tokens (score ≥ 75) |
-| GET /api/top | Top 20 tokens by score |
-| GET /api/signals | Signal log (NEW_LISTING, MOMENTUM, BREAKOUT) |
-| GET /api/stats | Engine stats (uptime, cycle count, poll interval) |
-| GET /api/movers | Top 10 by 5-min price change |
-| GET /api/hot | Top 10 by volume/liquidity ratio |
+- Channel pipeline: Fetcher → rawPairs → Normalizer → Filter → Scorer → Signal → Cache → PositionManager
+- Adaptive polling: 3s (>200 pairs) / 8s (low activity)
+- In-memory only (< 50MB steady state)
+- VolumeSpike dihitung vs first-seen volume (bukan tick-to-tick)
+- Paper trading default, live trading via env vars
+
+## Catatan Penting
+
+- DexScreener rate limit: jangan polling < 3s
+- Port 8080 dipakai Replit system → gunakan PORT=8099 di Replit
+- Token dengan `pairCreatedAt=0` (age unknown) di-skip untuk entry
+- Live trading butuh go-ethereum — lihat LIVE_TRADING.md
