@@ -29,7 +29,10 @@
           "txHash": "0x4dd425616b11c15456b9b976fc4a90856a7fcee3bc63d710dc9ab9b90c3511cb",
           "timestamp": "2026-05-13T12:58:51.663751138Z"
         }
-      ]
+      ],
+      "entryAgeMinutes": 0,
+      "entryBuyRatio": 0,
+      "entryPricePump5m": 0
     },
     "bd6c3727": {
       "id": "bd6c3727",
@@ -72,7 +75,10 @@
           "txHash": "0x33bc1a636fdbda433ac9bbdc03d21951b4c57979fbbbcbc7a8dd38f022a3c63b",
           "timestamp": "2026-05-13T12:58:32.509894339Z"
         }
-      ]
+      ],
+      "entryAgeMinutes": 0,
+      "entryBuyRatio": 0,
+      "entryPricePump5m": 0
     }
   },
   "trades": [
@@ -113,5 +119,5 @@
     }
   ],
   "blacklist": {},
-  "savedAt": "2026-05-13T13:46:48.908238946Z"
+  "savedAt": "2026-05-13T13:49:55.034744379Z"
 }
