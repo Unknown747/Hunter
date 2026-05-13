@@ -125,7 +125,7 @@ func (a *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
                 CycleCount:    st.CycleCount,
                 TrackedTokens: st.TotalTracked,
                 OpenPositions: openCount,
-                RiskLevel:     a.pm.cfg.RiskLevel,
+                RiskLevel:     a.pm.GetConfig().RiskLevel,
                 LastPollAgo:   a.stats.LastTokenAgo(),
         })
 }

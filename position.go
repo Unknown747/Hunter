@@ -92,21 +92,23 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
                 return
         }
 
-        // Cek awal dengan read lock (cepat)
+        // Cek awal dengan read lock — sekalian snapshot config agar tidak ada race
+        // setelah lock dilepas. pm.cfg bisa diubah sewaktu-waktu via Telegram /config.
         pm.mu.RLock()
         open := pm.openCount()
         already := pm.hasOpenFor(t.PairAddress)
         paused := pm.paused
+        cfgSnap := *pm.cfg // snapshot seluruh config di bawah lock
         pm.mu.RUnlock()
 
         if paused {
                 return // entry dijeda via Telegram /pause
         }
-        if already || open >= pm.cfg.MaxOpenTrades {
+        if already || open >= cfgSnap.MaxOpenTrades {
                 return
         }
 
-        result := CheckEntry(t, state, pm.cfg)
+        result := CheckEntry(t, state, &cfgSnap)
         if !result.Allow {
                 // Log token yang hampir masuk entry (score ≥ 60) agar bisa diaudit
                 // Ini KRITIS untuk verifikasi bahwa filter berjalan benar
@@ -118,7 +120,7 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
         }
 
         // exec.Buy() adalah operasi jaringan yang lambat — dilakukan di luar lock
-        fill, err := pm.exec.Buy(t, pm.cfg.TradeSizeUSD)
+        fill, err := pm.exec.Buy(t, cfgSnap.TradeSizeUSD)
         if err != nil {
                 logger.Printf("[trader] BUY gagal %s: %v", t.Symbol, err)
                 return

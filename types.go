@@ -185,29 +185,29 @@ type HealthStatus struct {
 
 // StrategyConfig menyimpan semua parameter yang bisa diatur.
 type StrategyConfig struct {
-        MinScore            float64
-        MinBuyRatio         float64
-        MinVolumeSpike      float64
-        MinLiquidityUSD     float64
-        MinAgeMinutes       float64
-        MaxAgeMinutes       float64
-        MaxPricePump5m      float64
-        TP1Pct              float64
-        TP1SellFrac         float64
-        TP2Pct              float64
-        StopLossPct         float64
-        TrailingStopPct     float64 // trailing stop % dari high water mark (0 = nonaktif)
-        TrailingActivatePct float64 // aktifkan trailing stop setelah profit ini %
-        EmergencyBuyRatio   float64
-        SuddenDumpThreshold float64
-        VolumeDropFraction  float64
-        MaxHoldMinutes      float64
-        MinProfitForHold    float64
-        MinMarketCapUSD     float64 // min market cap dalam USD (0 = nonaktif)
-        MaxMarketCapUSD     float64 // max market cap dalam USD (0 = nonaktif)
-        TradeSizeUSD        float64
-        MaxOpenTrades       int
-        RiskLevel           string
+        MinScore            float64 `json:"minScore"`
+        MinBuyRatio         float64 `json:"minBuyRatio"`
+        MinVolumeSpike      float64 `json:"minVolumeSpike"`
+        MinLiquidityUSD     float64 `json:"minLiquidityUSD"`
+        MinAgeMinutes       float64 `json:"minAgeMinutes"`
+        MaxAgeMinutes       float64 `json:"maxAgeMinutes"`
+        MaxPricePump5m      float64 `json:"maxPricePump5m"`
+        TP1Pct              float64 `json:"tp1Pct"`
+        TP1SellFrac         float64 `json:"tp1SellFrac"`
+        TP2Pct              float64 `json:"tp2Pct"`
+        StopLossPct         float64 `json:"stopLossPct"`
+        TrailingStopPct     float64 `json:"trailingStopPct"`     // trailing stop % dari high water mark (0 = nonaktif)
+        TrailingActivatePct float64 `json:"trailingActivatePct"` // aktifkan trailing stop setelah profit ini %
+        EmergencyBuyRatio   float64 `json:"emergencyBuyRatio"`
+        SuddenDumpThreshold float64 `json:"suddenDumpThreshold"`
+        VolumeDropFraction  float64 `json:"volumeDropFraction"`
+        MaxHoldMinutes      float64 `json:"maxHoldMinutes"`
+        MinProfitForHold    float64 `json:"minProfitForHold"`
+        MinMarketCapUSD     float64 `json:"minMarketCapUSD"` // min market cap dalam USD (0 = nonaktif)
+        MaxMarketCapUSD     float64 `json:"maxMarketCapUSD"` // max market cap dalam USD (0 = nonaktif)
+        TradeSizeUSD        float64 `json:"tradeSizeUSD"`
+        MaxOpenTrades       int     `json:"maxOpenTrades"`
+        RiskLevel           string  `json:"riskLevel"`
 }
 
 // DefaultConfig mengembalikan strategi EARLY_MOMENTUM_SCALP (normal).

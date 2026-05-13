@@ -142,13 +142,6 @@ func main() {
         }
 }
 
-// rejectSample menyimpan sample penolakan untuk logging diagnostik periodik.
-type rejectSample struct {
-        symbol string
-        age    float64
-        reason string
-}
-
 func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *StatsCounter, stop <-chan struct{}) {
         var (
                 totalSeen   int
@@ -196,7 +189,7 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
 
                                                 // Jika ditolak karena umur (tua permanen atau tanpa data) →
                                                 // masukkan ke skip cache agar tidak muncul lagi
-                                                prefix := reasonPrefix(res.Reason)
+                                                prefix := reasonPrefixFrom(res.Reason)
                                                 if prefix == "terlalu tua" || prefix == "umur" {
                                                         oldPairs[addr] = struct{}{}
                                                         logger.Printf("[pipeline] 🚫 Skip permanen: %s (%s) — tidak akan di-scan lagi",
@@ -233,22 +226,3 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
         }
 }
 
-// reasonPrefix mengekstrak kata pertama dari alasan penolakan untuk pengelompokan.
-func reasonPrefix(reason string) string {
-        if len(reason) == 0 {
-                return "unknown"
-        }
-        // Ambil kata pertama (sebelum ':' atau ' ')
-        for i, c := range reason {
-                if c == ':' || c == '=' {
-                        if i > 0 {
-                                return reason[:i]
-                        }
-                }
-        }
-        // Jika tidak ada pemisah, ambil 20 karakter pertama
-        if len(reason) > 20 {
-                return reason[:20]
-        }
-        return reason
-}
