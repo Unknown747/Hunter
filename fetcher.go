@@ -28,20 +28,13 @@ const (
         // Token profiles terbaru dari DexScreener — sumber listing baru
         urlTokenProfiles = "https://api.dexscreener.com/token-profiles/latest/v1"
 
+        // Endpoint khusus listing BARU terbaru di Base — diurutkan berdasarkan waktu pembuatan
+        // Jauh lebih efektif dari keyword search karena langsung target koin baru
+        urlLatestTokensBase = "https://api.dexscreener.com/token-profiles/latest/v1"
+
         // Batas umur pair yang masih dianggap "baru" untuk filter profil (45 menit — sinkron dengan filter.go)
         maxNewPairAgeHours = 0.75
 )
-
-// memeSearchKeywords adalah daftar kata kunci yang dirotasi setiap siklus.
-// DexScreener mencari berdasarkan nama/simbol token — ini menargetkan
-// kategori meme coin yang paling aktif di Base.
-var memeSearchKeywords = []string{
-        "pepe", "doge", "inu", "moon", "based",
-        "meme", "cat", "frog", "chad", "shib",
-        "floki", "wojak", "gm", "bonk", "pump",
-        "wif", "brett", "toshi", "cope", "higher",
-        "turbos", "boo", "sigma", "alpha", "gem",
-}
 
 // ─── Fetcher ───────────────────────────────────────────────────────────────────
 
@@ -81,19 +74,20 @@ func NewFetcher(out chan<- []DexPair) *Fetcher {
         }
 }
 
-// Run menjalankan tiga sumber data secara paralel:
-//  1. Price monitor utama (Aerodrome + Uniswap) — setiap 8 detik
-//  2. Meme keyword rotation (rotasi 25 keyword) — setiap 30 detik
-//  3. Token profiles watcher (listing baru DexScreener) — setiap 60 detik
+// Run menjalankan empat sumber data secara paralel:
+//  1. Price monitor utama (Aerodrome + Uniswap) — setiap 5-8 detik
+//  2. New listing scanner (rotasi 8 query DexScreener) — setiap 15 detik
+//  3. Token profiles watcher (listing baru DexScreener) — setiap 20 detik
+//  4. Factory watcher (on-chain PairCreated events) — dijalankan dari main.go
 func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
-        logger.Println("[fetcher] 🔄 Price monitor aktif — Aerodrome + Uniswap V3")
-        logger.Printf("[fetcher] 🎯 Meme keyword scanner aktif — %d keywords dirotasi setiap 30 detik", len(memeSearchKeywords))
-        logger.Println("[fetcher] 🆕 Token profiles watcher aktif — polling listing baru setiap 60 detik")
+        logger.Println("[fetcher] 🔄 Price monitor aktif — Aerodrome + Uniswap V3 (setiap 5-8s)")
+        logger.Println("[fetcher] 🆕 New listing scanner aktif — rotasi query, filter < 45m (setiap 15s)")
+        logger.Println("[fetcher] 🔍 Token profiles watcher aktif — listing baru DexScreener (setiap 20s)")
 
-        // Goroutine 2: meme keyword rotation
-        go f.runMemeSearch(stop)
+        // Goroutine 2: new listing scanner (ganti keyword rotation yang tidak efektif)
+        go f.runNewListingScanner(stop)
 
-        // Goroutine 3: token profiles watcher
+        // Goroutine 3: token profiles watcher (dipercepat 60s → 20s)
         go f.runProfilesWatcher(stop)
 
         // Goroutine utama: price monitor Aerodrome + Uniswap
@@ -149,54 +143,70 @@ func (f *Fetcher) Run(stop <-chan struct{}, stats *StatsCounter) {
         }
 }
 
-// runMemeSearch merotasi kata kunci meme setiap 30 detik.
-// Setiap siklus mengambil satu keyword dan mencari token di Base yang namanya
-// mengandung keyword tersebut, lalu hanya meloloskan token yang berumur < 2 jam.
-func (f *Fetcher) runMemeSearch(stop <-chan struct{}) {
-        ticker := time.NewTicker(30 * time.Second)
+// runNewListingScanner polling listing BARU di Base setiap 15 detik.
+// Strategi: cari pair di Base yang baru dibuat, diurutkan berdasarkan waktu terbaru.
+// Ini jauh lebih efektif dari keyword rotation karena langsung target pair baru.
+func (f *Fetcher) runNewListingScanner(stop <-chan struct{}) {
+        // Tunda sedikit agar tidak bentrok dengan startup
+        select {
+        case <-stop:
+                return
+        case <-time.After(5 * time.Second):
+        }
+
+        ticker := time.NewTicker(15 * time.Second)
         defer ticker.Stop()
+
+        // Rotasi beberapa query untuk mendapatkan coverage lebih luas dari pair baru
+        queries := []string{
+                "https://api.dexscreener.com/latest/dex/search?q=base+new",
+                "https://api.dexscreener.com/latest/dex/search?q=aerodrome+base",
+                "https://api.dexscreener.com/latest/dex/search?q=uniswap+v3+base",
+                "https://api.dexscreener.com/latest/dex/search?q=meme+base",
+                "https://api.dexscreener.com/latest/dex/search?q=pepe+base",
+                "https://api.dexscreener.com/latest/dex/search?q=inu+base",
+                "https://api.dexscreener.com/latest/dex/search?q=doge+base",
+                "https://api.dexscreener.com/latest/dex/search?q=moon+base",
+        }
+        queryIdx := 0
 
         for {
                 select {
                 case <-stop:
                         return
                 case <-ticker.C:
-                        keyword := memeSearchKeywords[f.memeIdx%len(memeSearchKeywords)]
-                        f.memeIdx++
+                        url := queries[queryIdx%len(queries)]
+                        queryIdx++
 
-                        url := "https://api.dexscreener.com/latest/dex/search?q=" + keyword + "+base"
                         pairs, err := f.fetchSearchBase(url)
                         if err != nil {
-                                logger.Printf("[fetcher/meme] error keyword '%s': %v", keyword, err)
+                                logger.Printf("[fetcher/new] error scan: %v", err)
                                 continue
                         }
 
-                        // Filter: hanya kirim token yang berumur < 2 jam
+                        // Filter ketat: hanya pair berumur < 45 menit
                         fresh := filterFreshPairs(pairs)
                         if len(fresh) > 0 {
-                                logger.Printf("[fetcher/meme] 🎯 keyword='%s' → %d pair segar dari %d hasil",
-                                        keyword, len(fresh), len(pairs))
+                                logger.Printf("[fetcher/new] 🆕 %d pair segar (< 45m) dari %d hasil — masuk pipeline",
+                                        len(fresh), len(pairs))
                                 f.send(fresh)
-                        } else {
-                                logger.Printf("[fetcher/meme] 🔍 keyword='%s' → %d hasil, 0 pair segar (semua > 2j)",
-                                        keyword, len(pairs))
                         }
                 }
         }
 }
 
-// runProfilesWatcher polling endpoint token-profiles DexScreener setiap 60 detik.
+// runProfilesWatcher polling endpoint token-profiles DexScreener setiap 20 detik.
 // Ini adalah sumber terbaik untuk listing baru karena DexScreener secara aktif
 // melacak token yang baru di-submit/listed. Hanya token di Base yang diproses.
 func (f *Fetcher) runProfilesWatcher(stop <-chan struct{}) {
-        // Tunda 10 detik saat startup agar tidak bentrok dengan inisialisasi
+        // Tunda 15 detik saat startup agar tidak bentrok dengan inisialisasi
         select {
         case <-stop:
                 return
-        case <-time.After(10 * time.Second):
+        case <-time.After(15 * time.Second):
         }
 
-        ticker := time.NewTicker(60 * time.Second)
+        ticker := time.NewTicker(20 * time.Second)
         defer ticker.Stop()
 
         for {
