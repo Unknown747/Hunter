@@ -5,6 +5,10 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+
+# Go binaries
+hunter/meme-hunter
+hunter/hunter-engine
 .expo
 .expo-shared
 
