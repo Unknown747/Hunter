@@ -92,6 +92,7 @@ func main() {
         go fetcher.Run(stop, stats)
 
         // Factory watcher: sumber utama koin BARU — monitor Aerodrome factory on-chain
+        // Mendeteksi event PairCreated langsung dari blockchain Base, lebih cepat dari API manapun
         go RunFactoryWatcher(rawPairs)
 
         go runPipeline(rawPairs, cache, pm, stop)
@@ -107,6 +108,7 @@ func main() {
 }
 
 func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-chan struct{}) {
+        var totalSeen, totalPassed, loggedAt int
         for {
                 select {
                 case <-stop:
@@ -115,6 +117,7 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-
                         if !ok {
                                 return
                         }
+                        batchPassed := 0
                         for i := range pairs {
                                 p := &pairs[i]
                                 t := Normalize(p)
@@ -122,13 +125,26 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-
                                 // Bypass filter umur untuk token yang sudah ada posisi terbuka —
                                 // kita tetap perlu update harga meski token sudah > 2 jam
                                 hasPos := pm.HasOpenPosition(p.PairAddress)
+                                totalSeen++
                                 if !hasPos && !Filter(t) {
                                         continue
                                 }
+                                totalPassed++
+                                batchPassed++
                                 t.Score = Score(t)
                                 t.Category = Categorize(t.Score)
                                 priorState, _ := cache.Upsert(t)
                                 pm.OnTokenUpdate(t, &priorState)
+                        }
+
+                        // Log setiap 100 token yang diproses agar user tahu kondisi pipeline
+                        if totalSeen/100 > loggedAt/100 {
+                                loggedAt = totalSeen
+                                logger.Printf("[pipeline] 📊 Diproses: %d pair total | Lolos filter: %d (%.0f%%) | Ditolak: %d",
+                                        totalSeen, totalPassed, float64(totalPassed)/float64(totalSeen)*100, totalSeen-totalPassed)
+                        }
+                        if batchPassed > 0 {
+                                logger.Printf("[pipeline] ✅ Batch %d pair → %d lolos filter (baru < 2 jam)", len(pairs), batchPassed)
                         }
                 }
         }

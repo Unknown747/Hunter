@@ -22,6 +22,9 @@ const (
         aeroV2Factory = "0x420DD381b31aEf6683db6B902084cB0FFECe40D"
         aeroCLFactory = "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A"
 
+        // Uniswap V3 factory di Base — DEX paling aktif untuk meme coin baru di Base
+        uniswapV3Factory = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"
+
         // Base rata-rata ~2 detik/block → 3600 block ≈ 2 jam
         watcherLookbackBlocks = 3600
         watcherPollSeconds    = 10
@@ -34,7 +37,7 @@ func getEnv(key, fallback string) string {
         return fallback
 }
 
-// RunFactoryWatcher memantau factory Aerodrome untuk event PairCreated/PoolCreated.
+// RunFactoryWatcher memantau factory Aerodrome + Uniswap V3 untuk event PairCreated/PoolCreated.
 // Setiap pair baru yang ditemukan on-chain akan di-fetch dari DexScreener
 // dan diinjeksikan ke rawPairs pipeline.
 func RunFactoryWatcher(rawPairs chan<- []DexPair) {
@@ -58,6 +61,14 @@ func factoryWatchLoop(rpcURL string, rawPairs chan<- []DexPair) error {
         factories := []common.Address{
                 common.HexToAddress(aeroV2Factory),
                 common.HexToAddress(aeroCLFactory),
+                common.HexToAddress(uniswapV3Factory),
+        }
+
+        // Peta factory → nama DEX untuk logging
+        factoryDEX := map[common.Address]string{
+                common.HexToAddress(aeroV2Factory):  "Aerodrome-V2",
+                common.HexToAddress(aeroCLFactory):  "Aerodrome-CL",
+                common.HexToAddress(uniswapV3Factory): "Uniswap-V3",
         }
 
         head, err := client.BlockNumber(ctx)
@@ -70,7 +81,7 @@ func factoryWatchLoop(rpcURL string, rawPairs chan<- []DexPair) error {
                 lastBlock = head - watcherLookbackBlocks
         }
 
-        logger.Printf("[factory] 🔍 Monitoring Aerodrome factories dari block %d (head=%d, ~%.0f jam ke belakang)",
+        logger.Printf("[factory] 🔍 Monitoring Aerodrome+UniswapV3 dari block %d (head=%d, ~%.0f jam ke belakang)",
                 lastBlock, head, float64(watcherLookbackBlocks)*2/3600)
 
         httpClient := &http.Client{Timeout: 12 * time.Second}
@@ -117,8 +128,12 @@ func factoryWatchLoop(rpcURL string, rawPairs chan<- []DexPair) error {
                         if pairAddr == "" {
                                 continue
                         }
-                        logger.Printf("[factory] 🆕 PAIR BARU on-chain: %s (block %d) — menunggu DexScreener index...",
-                                pairAddr, vlog.BlockNumber)
+                        dexName := factoryDEX[vlog.Address]
+                        if dexName == "" {
+                                dexName = "Unknown-DEX"
+                        }
+                        logger.Printf("[factory] 🆕 PAIR BARU [%s]: %s (block %d) — menunggu DexScreener...",
+                                dexName, pairAddr, vlog.BlockNumber)
                         go injectPairFromDex(pairAddr, httpClient, rawPairs)
                 }
         }
@@ -133,14 +148,25 @@ func factoryWatchLoop(rpcURL string, rawPairs chan<- []DexPair) error {
 // Aerodrome CL PoolCreated(address indexed token0, address indexed token1, int24 indexed tickSpacing, address pool):
 //   - 4 topics: [sig, token0, token1, tickSpacing]
 //   - data: pool(32) → pool address di data[12:32]
+//
+// Uniswap V3 PoolCreated(address indexed token0, address indexed token1, uint24 indexed fee, int24 tickSpacing, address pool):
+//   - 4 topics: [sig, token0, token1, fee]
+//   - data: tickSpacing(32) + pool(32) → pool address di data[44:64]
 func decodePairAddress(vlog ethtypes.Log) string {
+        uniV3 := common.HexToAddress(uniswapV3Factory)
         switch {
         case len(vlog.Topics) == 3 && len(vlog.Data) >= 64:
-                // v2: pair address ada di word ke-2 dalam data (offset 32..63)
+                // Aerodrome v2: pair address ada di word ke-2 dalam data (offset 32..63)
                 addr := common.BytesToAddress(vlog.Data[44:64])
                 return strings.ToLower(addr.Hex())
+
+        case vlog.Address == uniV3 && len(vlog.Topics) == 4 && len(vlog.Data) >= 64:
+                // Uniswap V3: pool address ada di word ke-2 dalam data (offset 32..63)
+                addr := common.BytesToAddress(vlog.Data[44:64])
+                return strings.ToLower(addr.Hex())
+
         case len(vlog.Topics) == 4 && len(vlog.Data) >= 32:
-                // CL: pool address ada di word pertama dalam data (offset 0..31)
+                // Aerodrome CL: pool address ada di word pertama dalam data (offset 0..31)
                 addr := common.BytesToAddress(vlog.Data[12:32])
                 return strings.ToLower(addr.Hex())
         }
@@ -152,12 +178,12 @@ func decodePairAddress(vlog ethtypes.Log) string {
 func injectPairFromDex(pairAddr string, httpClient *http.Client, rawPairs chan<- []DexPair) {
         url := fmt.Sprintf("https://api.dexscreener.com/latest/dex/pairs/base/%s", pairAddr)
 
-        delays := []time.Duration{45, 30, 30, 60, 60, 60}
-        var waited time.Duration
+        delays := []int{45, 30, 30, 60, 60, 60}
+        var waitedSec int
 
-        for i, delay := range delays {
-                time.Sleep(delay * time.Second)
-                waited += delay
+        for i, delaySec := range delays {
+                time.Sleep(time.Duration(delaySec) * time.Second)
+                waitedSec += delaySec
 
                 resp, err := httpClient.Get(url)
                 if err != nil {
@@ -170,7 +196,7 @@ func injectPairFromDex(pairAddr string, httpClient *http.Client, rawPairs chan<-
                         Pair *DexPair `json:"pair"`
                 }
                 if err := json.Unmarshal(body, &result); err != nil || result.Pair == nil {
-                        logger.Printf("[factory] Pair %s belum ter-index (attempt %d, sudah %.0fs)", pairAddr, i+1, waited.Seconds())
+                        logger.Printf("[factory] Pair %s belum ter-index (attempt %d, sudah %ds)", pairAddr, i+1, waitedSec)
                         continue
                 }
 
@@ -190,5 +216,5 @@ func injectPairFromDex(pairAddr string, httpClient *http.Client, rawPairs chan<-
                 return
         }
 
-        logger.Printf("[factory] ⚠️  Pair %s tidak ter-index DexScreener setelah %.0f menit", pairAddr, waited.Minutes())
+        logger.Printf("[factory] ⚠️  Pair %s tidak ter-index DexScreener setelah %d detik", pairAddr, waitedSec)
 }
