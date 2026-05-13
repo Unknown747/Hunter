@@ -39,7 +39,8 @@ const abiRouter = `[
 
 const abiERC20 = `[
 {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+{"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
 ]`
 
 // ─── Executor interface ────────────────────────────────────────────────────────
@@ -72,6 +73,10 @@ type LiveExecutor struct {
         slippagePct  float64
         rABI         abi.ABI
         eABI         abi.ABI
+        // Cache harga ETH/USD terakhir yang valid (fallback jika RPC sedang error)
+        ethPriceMu    sync.Mutex
+        lastEthPrice  float64
+        lastEthPriceAt time.Time
 }
 
 // NewLiveExecutor membuat LiveExecutor dari environment variables.
@@ -160,6 +165,7 @@ func NewLiveExecutor() (*LiveExecutor, error) {
                 slippagePct:  slippagePct,
                 rABI:         rABI,
                 eABI:         eABI,
+                lastEthPrice: 3000, // seed dengan harga awal yang wajar
         }, nil
 }
 
@@ -399,6 +405,7 @@ func (e *LiveExecutor) Sell(t *TokenInfo, pos *Position, fraction float64, reaso
                 return Fill{}, fmt.Errorf("no token address for %s", t.Symbol)
         }
         tokenAddr := common.HexToAddress(t.TokenAddress)
+        routerAddr := common.HexToAddress(addrRouter)
 
         balance, err := e.balanceOf(tokenAddr)
         if err != nil {
@@ -414,6 +421,10 @@ func (e *LiveExecutor) Sell(t *TokenInfo, pos *Position, fraction float64, reaso
                 af, _ := new(big.Float).Mul(new(big.Float).SetInt(balance), f).Int(nil)
                 amountToSell = af
         }
+        // Guard: jangan kirim transaksi dengan amount 0 (akan revert dan buang gas)
+        if amountToSell.Sign() == 0 {
+                return Fill{}, fmt.Errorf("amountToSell = 0 setelah rounding untuk %s (balance=%s fraction=%.4f)", t.Symbol, balance.String(), fraction)
+        }
 
         routes, expectedOut := e.findBestSellRoute(t.TokenAddress, t.QuoteTokenAddress, amountToSell)
         amountOutMin := applySlippage(expectedOut, e.slippagePct)
@@ -424,23 +435,31 @@ func (e *LiveExecutor) Sell(t *TokenInfo, pos *Position, fraction float64, reaso
                 logger.Printf("[executor] ⚠️  SELL %s: semua route gagal estimasi, lanjut dengan amountOutMin=0", t.Symbol)
         }
 
-        // 1. Approve
-        approveData, err := e.eABI.Pack("approve", common.HexToAddress(addrRouter), amountToSell)
-        if err != nil {
-                return Fill{}, fmt.Errorf("pack approve: %w", err)
+        // 1. Approve — cek allowance dulu, skip jika sudah cukup (hemat gas)
+        approveGasUSD := 0.0
+        currentAllowance, allowErr := e.allowanceOf(tokenAddr, e.address, routerAddr)
+        needApprove := allowErr != nil || currentAllowance.Cmp(amountToSell) < 0
+        if needApprove {
+                approveData, err := e.eABI.Pack("approve", routerAddr, amountToSell)
+                if err != nil {
+                        return Fill{}, fmt.Errorf("pack approve: %w", err)
+                }
+                approveTx, err := e.sendTxWithRetry(tokenAddr, big.NewInt(0), approveData, 60_000)
+                if err != nil {
+                        return Fill{}, fmt.Errorf("send approve: %w", err)
+                }
+                approveReceipt, err := e.waitReceipt(approveTx)
+                if err != nil {
+                        return Fill{}, fmt.Errorf("approve receipt: %w", err)
+                }
+                approveGasUSD = e.calcGasUSD(approveReceipt)
+                logger.Printf("[executor] ✅ Approve %s selesai | gas=$%.4f", t.Symbol, approveGasUSD)
+        } else {
+                logger.Printf("[executor] ⚡ Skip approve %s — allowance sudah cukup (%s)", t.Symbol, currentAllowance.String())
         }
-        approveTx, err := e.sendTxWithRetry(tokenAddr, big.NewInt(0), approveData, 60_000)
-        if err != nil {
-                return Fill{}, fmt.Errorf("send approve: %w", err)
-        }
-        approveReceipt, err := e.waitReceipt(approveTx)
-        if err != nil {
-                return Fill{}, fmt.Errorf("approve receipt: %w", err)
-        }
-        approveGasUSD := e.calcGasUSD(approveReceipt)
 
-        // 2. Swap tokens → ETH
-        deadline := big.NewInt(time.Now().Add(60 * time.Second).Unix())
+        // 2. Swap tokens → ETH (deadline 90 detik — lebih toleran saat congestion)
+        deadline := big.NewInt(time.Now().Add(90 * time.Second).Unix())
         swapData, err := e.rABI.Pack("swapExactTokensForETH", amountToSell, amountOutMin, routes, e.address, deadline)
         if err != nil {
                 return Fill{}, fmt.Errorf("pack sell: %w", err)
@@ -526,8 +545,16 @@ func applySlippage(amount *big.Int, slippagePct float64) *big.Int {
 }
 
 // ethPriceUSD mengambil harga ETH/USD live dari pool WETH/USDC Aerodrome.
-// Fallback ke $3000 jika query gagal.
+// Cache diperbarui setiap 60 detik. Jika RPC gagal, kembalikan harga terakhir yang valid.
 func (e *LiveExecutor) ethPriceUSD() float64 {
+        e.ethPriceMu.Lock()
+        defer e.ethPriceMu.Unlock()
+
+        // Gunakan cache jika masih segar (< 60 detik)
+        if !e.lastEthPriceAt.IsZero() && time.Since(e.lastEthPriceAt) < 60*time.Second {
+                return e.lastEthPrice
+        }
+
         oneETH := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
         usdcAddr := common.HexToAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
         routes := []AeroRoute{{
@@ -539,7 +566,7 @@ func (e *LiveExecutor) ethPriceUSD() float64 {
 
         data, err := e.rABI.Pack("getAmountsOut", oneETH, routes)
         if err != nil {
-                return 3000
+                return e.lastEthPrice
         }
 
         routerAddr := common.HexToAddress(addrRouter)
@@ -552,16 +579,17 @@ func (e *LiveExecutor) ethPriceUSD() float64 {
 
         result, err := c.CallContract(ctx, geth.CallMsg{To: &routerAddr, Data: data}, nil)
         if err != nil || len(result) == 0 {
-                return 3000
+                logger.Printf("[executor] ethPriceUSD gagal query RPC, gunakan cache $%.0f: %v", e.lastEthPrice, err)
+                return e.lastEthPrice
         }
 
         out, err := e.rABI.Unpack("getAmountsOut", result)
         if err != nil {
-                return 3000
+                return e.lastEthPrice
         }
         amounts, ok := out[0].([]*big.Int)
         if !ok || len(amounts) < 2 {
-                return 3000
+                return e.lastEthPrice
         }
 
         usdc := amounts[len(amounts)-1]
@@ -571,9 +599,35 @@ func (e *LiveExecutor) ethPriceUSD() float64 {
         ).Float64()
 
         if price < 100 || price > 100_000 {
-                return 3000
+                // Harga tidak masuk akal — pertahankan cache
+                return e.lastEthPrice
         }
+
+        // Perbarui cache
+        e.lastEthPrice = price
+        e.lastEthPriceAt = time.Now()
         return price
+}
+
+// allowanceOf mengecek berapa banyak token yang sudah diizinkan (approve) oleh owner ke spender.
+func (e *LiveExecutor) allowanceOf(token, owner, spender common.Address) (*big.Int, error) {
+        data, err := e.eABI.Pack("allowance", owner, spender)
+        if err != nil {
+                return nil, err
+        }
+
+        e.clientMu.Lock()
+        c := e.client
+        e.clientMu.Unlock()
+
+        result, err := c.CallContract(context.Background(), geth.CallMsg{To: &token, Data: data}, nil)
+        if err != nil {
+                return nil, err
+        }
+        if len(result) < 32 {
+                return big.NewInt(0), nil
+        }
+        return new(big.Int).SetBytes(result[len(result)-32:]), nil
 }
 
 // sendTxWithRetry mengirim transaksi, dan jika terjadi connection error, coba reconnect lalu retry sekali.
