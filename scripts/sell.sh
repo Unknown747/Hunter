@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# sell.sh — Tutup semua posisi terbuka segera via API engine
-# Gunakan: bash sell.sh [alasan]
-# Contoh : bash sell.sh "emergency stop sebelum maintenance"
+# scripts/sell.sh — Tutup semua posisi terbuka segera via API engine
+# Gunakan: bash scripts/sell.sh [alasan]
+# Contoh : bash scripts/sell.sh "emergency stop sebelum maintenance"
 
 set -e
 
@@ -21,7 +21,7 @@ echo ""
 # ── 1. Cek apakah engine berjalan ─────────────────────────────────────────────
 if ! curl -sf "${BASE_URL}/health" >/dev/null 2>&1; then
     echo -e "${RED}[ERR]${NC}  Engine tidak berjalan di port ${PORT}."
-    echo -e "       Jalankan start.sh terlebih dahulu, atau cek: systemctl status meme-hunter"
+    echo -e "       Jalankan scripts/start.sh terlebih dahulu, atau cek: systemctl status meme-hunter"
     exit 1
 fi
 
@@ -51,14 +51,15 @@ echo ""
 echo -e "${CYAN}[INFO]${NC} Menutup semua posisi: \"${REASON}\"..."
 
 # ── 4. Kirim perintah close-all ke engine ─────────────────────────────────────
-ENCODED_REASON=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${REASON}'))" 2>/dev/null \
+# URL-encode reason dengan python3 (fallback: ganti spasi saja)
+ENCODED_REASON=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$REASON" 2>/dev/null \
     || echo "${REASON// /%20}")
 
 RESULT=$(curl -sf -X POST \
     "${BASE_URL}/api/close-all?reason=${ENCODED_REASON}" \
-    -H "Content-Type: application/json" 2>/dev/null)
+    -H "Content-Type: application/json" 2>/dev/null || true)
 
-if [[ $? -ne 0 ]]; then
+if [[ -z "$RESULT" ]]; then
     echo -e "${RED}[ERR]${NC}  Gagal menghubungi engine. Cek log: journalctl -u meme-hunter -n 20"
     exit 1
 fi

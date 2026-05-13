@@ -160,9 +160,9 @@ func (tg *TelegramNotifier) NotifyEntry(pos *Position, t *TokenInfo, cfg *Strate
                         "📦 Txn: <b>%d</b> | Size: <b>$%.2f</b>\n"+
                         "\n"+
                         "💰 Entry: <code>$%.8f</code>\n"+
-                        "🎯 TP1 (+%d%%): <code>$%.8f</code>\n"+
-                        "🎯 TP2 (+%d%%): <code>$%.8f</code>\n"+
-                        "🛑 SL (-%d%%): <code>$%.8f</code>\n"+
+                        "🎯 TP1 (+%.0f%%): <code>$%.8f</code>\n"+
+                        "🎯 TP2 (+%.0f%%): <code>$%.8f</code>\n"+
+                        "🛑 SL (-%.0f%%): <code>$%.8f</code>\n"+
                         "\n"+
                         "🔗 <a href=\"%s\">DexScreener</a>",
                 t.Symbol,
@@ -243,7 +243,7 @@ func (tg *TelegramNotifier) NotifyTP1(pos *Position, exitPrice float64, cfg *Str
                         "\n"+
                         "💰 Jual 50%% @ <b>+%.1f%%</b>\n"+
                         "📊 Entry: <code>$%.8f</code> → TP1: <code>$%.8f</code>\n"+
-                        "🎯 Target TP2: <b>+%d%%</b> | Sisa: <b>50%%</b> posisi\n"+
+                        "🎯 Target TP2: <b>+%.0f%%</b> | Sisa: <b>50%%</b> posisi\n"+
                         "\n"+
                         "🔗 <a href=\"%s\">DexScreener</a>",
                 pos.Symbol,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# start.sh — Mulai engine Meme Coin Hunter
-# Gunakan: bash start.sh
+# scripts/start.sh — Mulai engine Meme Coin Hunter
+# Gunakan: bash scripts/start.sh
 # Mode   : jika diinstall via install.sh (systemd), gunakan systemctl
 #          jika dijalankan langsung, jalankan binary atau go run
 
@@ -59,19 +59,19 @@ if [[ -f "$BINARY" ]]; then
     echo -e "${YELLOW}[INFO]${NC} Tekan Ctrl+C untuk berhenti (atau gunakan stop.sh)"
     echo ""
     exec "$BINARY"
-    exit 0
 fi
 
 # ── Mode 3: go run (development) ─────────────────────────────────────────────
 if command -v go &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
     echo -e "${CYAN}[INFO]${NC} Menjalankan via go run ..."
     echo -e "${CYAN}[INFO]${NC} Dashboard: http://localhost:${PORT}"
     echo -e "${YELLOW}[INFO]${NC} Tekan Ctrl+C untuk berhenti (atau gunakan stop.sh)"
     echo ""
-    exec go run .
-    exit 0
+    exec go run "${PROJECT_DIR}"
 fi
 
 echo -e "${RED}[ERR]${NC}  Tidak ditemukan: systemd service, binary, atau Go."
-echo -e "       Jalankan install.sh terlebih dahulu."
+echo -e "       Jalankan scripts/install.sh terlebih dahulu."
 exit 1

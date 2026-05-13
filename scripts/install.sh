@@ -18,6 +18,10 @@ SERVICE_USER="meme-hunter"
 PORT="${PORT:-8080}"
 BINARY_NAME="meme-hunter"
 
+# Direktori script ini dan root proyek (satu level di atas scripts/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 echo -e ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║    Base Meme Coin Hunter — VPS Install   ║${NC}"
@@ -26,7 +30,7 @@ echo ""
 
 # ─── 1. Cek root ──────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-    error "Jalankan sebagai root: sudo bash install.sh"
+    error "Jalankan sebagai root: sudo bash scripts/install.sh"
 fi
 
 # ─── 2. Cek OS ────────────────────────────────────────────────────────────────
@@ -59,10 +63,10 @@ if [[ "$CURRENT_GO" == "$GO_VERSION" ]]; then
 else
     info "Menginstal Go $GO_VERSION ($GO_ARCH)..."
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
-    wget -q "https://go.dev/dl/${GO_TAR}" -O /tmp/${GO_TAR}
+    wget -q "https://go.dev/dl/${GO_TAR}" -O "/tmp/${GO_TAR}"
     rm -rf /usr/local/go
-    tar -C /usr/local -xzf /tmp/${GO_TAR}
-    rm /tmp/${GO_TAR}
+    tar -C /usr/local -xzf "/tmp/${GO_TAR}"
+    rm "/tmp/${GO_TAR}"
 
     export PATH=$PATH:/usr/local/go/bin
     if ! grep -q '/usr/local/go/bin' /etc/profile; then
@@ -84,23 +88,23 @@ fi
 # ─── 6. Salin file proyek ─────────────────────────────────────────────────────
 info "Menyalin file proyek ke $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-cp -r "$SCRIPT_DIR"/*.go    "$INSTALL_DIR/" 2>/dev/null || true
-cp -r "$SCRIPT_DIR/go.mod"  "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/go.sum"  "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/static"  "$INSTALL_DIR/"
+# Salin Go source dari root proyek
+cp -r "${PROJECT_DIR}"/*.go   "$INSTALL_DIR/" 2>/dev/null || true
+cp    "${PROJECT_DIR}/go.mod" "$INSTALL_DIR/"
+cp    "${PROJECT_DIR}/go.sum" "$INSTALL_DIR/"
+cp -r "${PROJECT_DIR}/static" "$INSTALL_DIR/"
 
-# Salin script operasional
+# Salin script operasional ke INSTALL_DIR (agar bisa dijalankan langsung)
 for script in sell.sh start.sh stop.sh; do
-    if [[ -f "$SCRIPT_DIR/$script" ]]; then
-        cp "$SCRIPT_DIR/$script" "$INSTALL_DIR/$script"
+    if [[ -f "${SCRIPT_DIR}/${script}" ]]; then
+        cp "${SCRIPT_DIR}/${script}" "$INSTALL_DIR/$script"
         chmod +x "$INSTALL_DIR/$script"
     fi
 done
 
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-    cp "$SCRIPT_DIR/.env" "$INSTALL_DIR/.env"
+if [[ -f "${PROJECT_DIR}/.env" ]]; then
+    cp "${PROJECT_DIR}/.env" "$INSTALL_DIR/.env"
     warn ".env disalin — pastikan PRIVATE_KEY aman (chmod 600 $INSTALL_DIR/.env)"
 fi
 

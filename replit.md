@@ -5,26 +5,41 @@ Engine monitoring realtime + auto-trading untuk meme coin di jaringan Base (Aero
 ## Struktur Proyek
 
 ```
-main.go          ← entry point + pipeline orchestration
-fetcher.go       ← DexScreener HTTP ingestion
-normalizer.go    ← raw → TokenInfo struct
-filter.go        ← 3-layer filter engine
-scorer.go        ← 0-100 weighted scoring
-signal.go        ← NEW_LISTING / MOMENTUM / BREAKOUT detection
-cache.go         ← in-memory state + VolumeSpike calculation
-strategy.go      ← entry/exit rule engine (CheckEntry / CheckExit)
-executor.go      ← PaperExecutor + LiveExecutor (Base + Aerodrome)
-position.go      ← PositionManager (open/close/monitor trades)
-api.go           ← REST endpoints + CORS
-stats.go         ← uptime/cycle counters
-types.go         ← semua shared structs
-go.mod           ← Go module
-static/
-  index.html     ← dark dashboard (tabbed, realtime)
-install.sh       ← installer otomatis untuk VPS
-update.sh        ← auto-update dari GitHub + graceful reload (zero rebuild downtime)
-.env.example     ← template konfigurasi environment
-LIVE_TRADING.md  ← panduan live trading on-chain
+├── main.go               ← entry point + pipeline orchestration
+├── types.go              ← semua shared structs
+├── fetcher.go            ← DexScreener HTTP ingestion
+├── normalizer.go         ← raw → TokenInfo struct
+├── filter.go             ← 3-layer filter engine
+├── scorer.go             ← 0-100 weighted scoring
+├── signal.go             ← NEW_LISTING / MOMENTUM / BREAKOUT detection
+├── cache.go              ← in-memory state + VolumeSpike calculation
+├── strategy.go           ← entry/exit rule engine (CheckEntry / CheckExit)
+├── executor.go           ← PaperExecutor + LiveExecutor (Base + Aerodrome)
+├── position.go           ← PositionManager (open/close/monitor trades)
+├── factory_watcher.go    ← on-chain event monitor (PairCreated/PoolCreated)
+├── telegram.go           ← Telegram notifier
+├── telegram_commands.go  ← Telegram bot commands (/status, /pos, dll)
+├── blacklist.go          ← token blacklist
+├── rugpattern.go         ← rug pattern detection
+├── persistence.go        ← save/load state ke state.json
+├── api.go                ← REST endpoints + CORS
+├── stats.go              ← uptime/cycle counters
+├── go.mod / go.sum       ← Go module
+├── .env.example          ← template konfigurasi environment
+├── state.json            ← state posisi (auto-generated)
+│
+├── static/
+│   └── index.html        ← dark dashboard (tabbed, realtime)
+│
+├── scripts/
+│   ├── install.sh        ← installer otomatis untuk VPS
+│   ├── update.sh         ← auto-update dari GitHub + graceful reload
+│   ├── start.sh          ← mulai engine
+│   ├── stop.sh           ← hentikan engine (jual posisi dulu)
+│   └── sell.sh           ← tutup semua posisi via API
+│
+└── docs/
+    └── LIVE_TRADING.md   ← panduan live trading on-chain
 ```
 
 ## Menjalankan di Replit
@@ -45,7 +60,7 @@ cp .env.example .env
 nano .env
 
 # 3. Jalankan installer
-sudo bash install.sh
+sudo bash scripts/install.sh
 ```
 
 Installer akan otomatis:
@@ -122,37 +137,22 @@ SLIPPAGE_PCT=5.0 \
 PORT=8080 ./meme-hunter
 ```
 
-Lihat `LIVE_TRADING.md` untuk panduan lengkap eksekusi on-chain.
+Lihat `docs/LIVE_TRADING.md` untuk panduan lengkap eksekusi on-chain.
 
 ## Update Otomatis dari GitHub
 
 ```bash
 # Update ke versi terbaru (pull + rebuild + graceful restart)
-sudo bash /opt/meme-hunter/update.sh
+sudo bash /opt/meme-hunter/scripts/update.sh
 
 # Cek apakah ada update tersedia (tanpa eksekusi)
-sudo bash /opt/meme-hunter/update.sh --dry-run
+sudo bash scripts/update.sh --dry-run
 
 # Rollback ke versi sebelumnya jika ada masalah
-sudo bash /opt/meme-hunter/update.sh --rollback
+sudo bash scripts/update.sh --rollback
 
 # Build ulang saja tanpa restart service
-sudo bash /opt/meme-hunter/update.sh --no-restart
-```
-
-**Alur update (zero rebuild downtime):**
-1. `git pull` → ambil kode terbaru dari GitHub
-2. `go build` → kompilasi binary baru ke file `.new` (service lama tetap jalan)
-3. Binary lama dicopy ke `.prev` (backup rollback)
-4. `mv` atomik: swap `.new` → binary aktif
-5. `systemctl restart` → SIGTERM → bot simpan state/posisi → start ulang dengan binary baru
-6. Health check ke `/api/stats` untuk konfirmasi API naik
-
-**Auto-update via cron (opsional):**
-```bash
-# Update otomatis setiap hari jam 04:00 (saat market sepi)
-echo "0 4 * * * root bash /opt/meme-hunter/update.sh >> /opt/meme-hunter/update.log 2>&1" \
-  | sudo tee /etc/cron.d/meme-hunter-update
+sudo bash scripts/update.sh --no-restart
 ```
 
 ## Perintah VPS Setelah Instalasi
@@ -173,9 +173,17 @@ systemctl restart meme-hunter
 
 # Hentikan service
 systemctl stop meme-hunter
+```
 
-# Lihat riwayat update
-cat /opt/meme-hunter/update.log
+## Script Operasional
+
+```bash
+bash scripts/start.sh          # Mulai engine
+bash scripts/stop.sh           # Hentikan engine (jual posisi dulu)
+bash scripts/stop.sh --force   # Stop paksa tanpa jual posisi
+bash scripts/sell.sh           # Tutup semua posisi (engine tetap jalan)
+sudo bash scripts/install.sh   # Install di VPS baru
+sudo bash scripts/update.sh    # Update dari GitHub
 ```
 
 ## Arsitektur
@@ -190,7 +198,7 @@ cat /opt/meme-hunter/update.log
 
 - DexScreener rate limit: jangan polling < 3s
 - Token dengan `pairCreatedAt=0` (umur tidak diketahui) dilewati untuk entry
-- Live trading membutuhkan go-ethereum — lihat `LIVE_TRADING.md`
+- Live trading membutuhkan go-ethereum — lihat `docs/LIVE_TRADING.md`
 - Jangan commit `.env` ke git (sudah ada di `.gitignore`)
 
 ## Preferensi Pengguna

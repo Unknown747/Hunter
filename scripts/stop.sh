@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# stop.sh — Hentikan engine dengan aman (jual semua posisi dulu)
-# Gunakan: bash stop.sh [--force]
+# scripts/stop.sh — Hentikan engine dengan aman (jual semua posisi dulu)
+# Gunakan: bash scripts/stop.sh [--force]
 #   --force : langsung stop tanpa menutup posisi (darurat)
 
 set -e
@@ -11,6 +11,8 @@ CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 SERVICE="meme-hunter"
 PORT="${PORT:-8080}"
 FORCE=false
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 for arg in "$@"; do
     [[ "$arg" == "--force" ]] && FORCE=true
@@ -44,7 +46,7 @@ if [[ "$FORCE" == false ]]; then
         OPEN=$(curl -sf "${BASE_URL}/api/positions" 2>/dev/null | grep -o '"OPEN"' | wc -l | tr -d ' ')
         if [[ "$OPEN" -gt 0 ]]; then
             echo -e "${YELLOW}[WARN]${NC} Ada ${OPEN} posisi terbuka. Menutup terlebih dahulu..."
-            bash "$(dirname "$0")/sell.sh" "ENGINE STOP — auto close"
+            bash "${SCRIPT_DIR}/sell.sh" "ENGINE STOP — auto close"
         else
             echo -e "${GREEN}[OK]${NC}   Tidak ada posisi terbuka."
         fi

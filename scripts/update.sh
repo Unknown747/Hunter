@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# update.sh — Auto-update Base Meme Coin Hunter dari GitHub
+# scripts/update.sh — Auto-update Base Meme Coin Hunter dari GitHub
 # Strategi: build binary baru dulu → swap atomik → graceful restart via systemd
 # State posisi tersimpan ke disk sebelum shutdown (persist.go), dimuat ulang otomatis.
 #
 # Penggunaan:
-#   sudo bash update.sh                   # update normal
-#   sudo bash update.sh --rollback        # rollback ke versi sebelumnya
-#   sudo bash update.sh --no-restart      # build saja, tanpa restart service
-#   sudo bash update.sh --dry-run         # cek update tersedia, tanpa eksekusi
+#   sudo bash scripts/update.sh                   # update normal
+#   sudo bash scripts/update.sh --rollback        # rollback ke versi sebelumnya
+#   sudo bash scripts/update.sh --no-restart      # build saja, tanpa restart service
+#   sudo bash scripts/update.sh --dry-run         # cek update tersedia, tanpa eksekusi
 set -euo pipefail
 
 # ─── Warna ────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ for arg in "$@"; do
         --no-restart) NO_RESTART=true ;;
         --dry-run)    DRY_RUN=true ;;
         --help|-h)
-            echo "Penggunaan: sudo bash update.sh [--rollback|--no-restart|--dry-run]"
+            echo "Penggunaan: sudo bash scripts/update.sh [--rollback|--no-restart|--dry-run]"
             exit 0 ;;
     esac
 done
@@ -53,10 +53,10 @@ echo -e "${BOLD}╚════════════════════�
 echo ""
 
 # ─── Cek root ─────────────────────────────────────────────────────────────────
-[[ $EUID -ne 0 ]] && error "Jalankan sebagai root: sudo bash update.sh"
+[[ $EUID -ne 0 ]] && error "Jalankan sebagai root: sudo bash scripts/update.sh"
 
 # ─── Cek direktori install ────────────────────────────────────────────────────
-[[ ! -d "$INSTALL_DIR" ]] && error "Direktori install tidak ditemukan: $INSTALL_DIR\nJalankan install.sh terlebih dahulu."
+[[ ! -d "$INSTALL_DIR" ]] && error "Direktori install tidak ditemukan: $INSTALL_DIR\nJalankan scripts/install.sh terlebih dahulu."
 
 export PATH=$PATH:/usr/local/go/bin
 go version &>/dev/null || error "Go tidak ditemukan. Pastikan Go sudah terinstal."
@@ -86,7 +86,7 @@ if $DO_ROLLBACK; then
 
     if systemctl is-active --quiet "$SERVICE_NAME"; then
         success "Service '${SERVICE_NAME}' berjalan dengan versi sebelumnya"
-        echo -e "\n  Status  : $(systemctl is-active $SERVICE_NAME)"
+        echo -e "\n  Status  : $(systemctl is-active "$SERVICE_NAME")"
         echo -e "  Log     : journalctl -u ${SERVICE_NAME} -f"
     else
         error "Service gagal start setelah rollback. Cek: journalctl -u ${SERVICE_NAME} -n 30"
@@ -104,8 +104,8 @@ if [[ ! -d ".git" ]]; then
     warn "Direktori ${INSTALL_DIR} bukan repo Git."
     warn "Update otomatis dari GitHub membutuhkan repo Git."
     echo ""
-    echo -e "  Opsi 1: Clone ulang ke direktori temp, lalu jalankan install.sh"
-    echo -e "  Opsi 2: Salin file .go terbaru manual, lalu: sudo bash update.sh --no-restart && sudo systemctl restart ${SERVICE_NAME}"
+    echo -e "  Opsi 1: Clone ulang ke direktori temp, lalu jalankan scripts/install.sh"
+    echo -e "  Opsi 2: Salin file .go terbaru manual, lalu: sudo bash scripts/update.sh --no-restart && sudo systemctl restart ${SERVICE_NAME}"
     echo ""
     error "Batalkan: bukan repo Git."
 fi
@@ -186,10 +186,14 @@ if [[ -n "$CHANGED" ]]; then
     [[ "${STASH_CONFIRM,,}" != "y" ]] && { info "Dibatalkan."; exit 0; }
 
     info "Menyimpan perubahan lokal sementara (git stash)..."
-    git stash push --include-untracked \
-        --message "auto-stash sebelum update $(date +%Y%m%d_%H%M%S)" \
-        -- $(git ls-files --modified --others --exclude-standard | grep -v '\.env' | grep -v 'state\.json') \
-        2>/dev/null || true
+    # Kumpulkan file yang perlu di-stash (kecuali .env dan state.json)
+    STASH_FILES=$(git ls-files --modified --others --exclude-standard \
+        | grep -v '\.env' | grep -v 'state\.json' || true)
+    if [[ -n "$STASH_FILES" ]]; then
+        git stash push --include-untracked \
+            --message "auto-stash sebelum update $(date +%Y%m%dT%H%M%S)" \
+            -- $STASH_FILES 2>/dev/null || true
+    fi
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -200,7 +204,7 @@ step "Pull kode terbaru dari GitHub"
 git pull origin "$BRANCH" --ff-only 2>&1 | while read -r line; do
     info "$line"
 done || {
-    warn "Fast-forward tidak bisa dilakukan. Coba: git pull origin ${BRANCH} --rebase"
+    warn "Fast-forward tidak bisa dilakukan. Coba dengan --rebase..."
     git pull origin "$BRANCH" --rebase 2>&1 | tail -5
 }
 
@@ -248,7 +252,7 @@ if $NO_RESTART; then
     # Swap binary tanpa restart
     [[ -f "$BINARY_PATH" ]] && cp -f "$BINARY_PATH" "$BACKUP_PATH"
     mv -f "$NEW_BINARY_PATH" "$BINARY_PATH"
-    chown meme-hunter:meme-hunter "$BINARY_PATH" 2>/dev/null || true
+    chown "${SERVICE_NAME}:${SERVICE_NAME}" "$BINARY_PATH" 2>/dev/null || true
     success "Binary diupdate. Service belum di-restart (--no-restart aktif)."
     echo -e "\n  Untuk menerapkan update: ${CYAN}systemctl restart ${SERVICE_NAME}${NC}"
     exit 0
@@ -267,17 +271,13 @@ fi
 
 # Swap atomik (mv pada filesystem yang sama = instan)
 mv -f "$NEW_BINARY_PATH" "$BINARY_PATH"
-chown meme-hunter:meme-hunter "$BINARY_PATH" 2>/dev/null || true
+chown "${SERVICE_NAME}:${SERVICE_NAME}" "$BINARY_PATH" 2>/dev/null || true
 success "Binary baru sudah aktif (swap atomik)"
 
 # Cek apakah service berjalan — jika iya, kirim SIGTERM dulu
-# systemd akan memproses graceful shutdown (bot simpan state, tutup posisi)
-# lalu restart otomatis dengan binary baru
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     info "Mengirim graceful restart ke service..."
     systemctl restart "$SERVICE_NAME"
-    # systemctl restart = SIGTERM → tunggu ExecStop → start ulang
-    # Bot menerima SIGTERM, memanggil GracefulShutdown() → persist state → exit
 else
     info "Service tidak berjalan — starting fresh..."
     systemctl start "$SERVICE_NAME"
@@ -302,7 +302,7 @@ step "Verifikasi health check"
 
 if ! systemctl is-active --quiet "$SERVICE_NAME"; then
     echo ""
-    error "⚠️  Service gagal naik setelah update!\n   Rollback otomatis diperlukan."
+    error "⚠️  Service gagal naik setelah update!\n   Jalankan rollback: sudo bash scripts/update.sh --rollback"
 fi
 
 # Ambil port dari .env
@@ -323,7 +323,7 @@ for attempt in 1 2 3 4 5; do
 done
 
 if ! $HEALTH_OK; then
-    warn "API health check timeout (${MAX_WAIT}s). Service berjalan tapi mungkin masih starting."
+    warn "API health check timeout. Service berjalan tapi mungkin masih starting."
     warn "Cek manual: curl http://127.0.0.1:${PORT_FROM_ENV}/api/stats"
 fi
 
@@ -342,13 +342,13 @@ echo ""
 echo -e "  Versi lama : ${YELLOW}${LOCAL_SHORT}${NC}"
 echo -e "  Versi baru : ${GREEN}${NEW_SHORT}${NC}"
 echo -e "  Build time : ${BUILD_SEC}s"
-echo -e "  Binary     : $(du -sh $BINARY_PATH | cut -f1)"
-echo -e "  Status     : $(systemctl is-active $SERVICE_NAME)"
+echo -e "  Binary     : $(du -sh "$BINARY_PATH" | cut -f1)"
+echo -e "  Status     : $(systemctl is-active "$SERVICE_NAME")"
 echo ""
 echo -e "${BOLD}Perintah berguna:${NC}"
-echo -e "  journalctl -u ${SERVICE_NAME} -f          — lihat log realtime"
-echo -e "  sudo bash update.sh --rollback             — rollback ke versi sebelumnya"
-echo -e "  cat ${LOG_FILE}                 — riwayat update"
+echo -e "  journalctl -u ${SERVICE_NAME} -f              — lihat log realtime"
+echo -e "  sudo bash scripts/update.sh --rollback        — rollback ke versi sebelumnya"
+echo -e "  cat ${LOG_FILE}                    — riwayat update"
 echo ""
 if $HEALTH_OK; then
     success "API merespons normal di port ${PORT_FROM_ENV}"
