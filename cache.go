@@ -89,13 +89,16 @@ func (c *Cache) Upsert(t *TokenInfo) (priorState TokenState, sigs []Signal) {
         return priorState, sigs
 }
 
-// AllTokens mengembalikan semua token yang dilacak, diurutkan berdasarkan score desc.
+// AllTokens mengembalikan salinan semua token, diurutkan berdasarkan score desc.
+// Mengembalikan salinan (bukan pointer ke objek internal) agar aman dibaca
+// tanpa lock setelah fungsi ini kembali.
 func (c *Cache) AllTokens() []*TokenInfo {
         c.mu.RLock()
         defer c.mu.RUnlock()
         list := make([]*TokenInfo, 0, len(c.tokens))
         for _, t := range c.tokens {
-                list = append(list, t)
+                cp := *t // salin nilai, bukan pointer
+                list = append(list, &cp)
         }
         sort.Slice(list, func(i, j int) bool {
                 return list[i].Score > list[j].Score
@@ -186,13 +189,14 @@ func (c *Cache) cleanup() {
         }
 }
 
-// TopMovers mengembalikan token dengan perubahan harga 5m terbesar.
+// TopMovers mengembalikan salinan token dengan perubahan harga 5m terbesar.
 func (c *Cache) TopMovers(n int) []*TokenInfo {
         c.mu.RLock()
         defer c.mu.RUnlock()
         list := make([]*TokenInfo, 0, len(c.tokens))
         for _, t := range c.tokens {
-                list = append(list, t)
+                cp := *t
+                list = append(list, &cp)
         }
         sort.Slice(list, func(i, j int) bool {
                 return list[i].PriceChange5m > list[j].PriceChange5m
@@ -203,13 +207,14 @@ func (c *Cache) TopMovers(n int) []*TokenInfo {
         return list[:n]
 }
 
-// HotPairs mengembalikan token dengan rasio volume/likuiditas tertinggi.
+// HotPairs mengembalikan salinan token dengan rasio volume/likuiditas tertinggi.
 func (c *Cache) HotPairs(n int) []*TokenInfo {
         c.mu.RLock()
         defer c.mu.RUnlock()
         list := make([]*TokenInfo, 0, len(c.tokens))
         for _, t := range c.tokens {
-                list = append(list, t)
+                cp := *t
+                list = append(list, &cp)
         }
         sort.Slice(list, func(i, j int) bool {
                 ratioI := list[i].Volume24h / atLeastOne(list[i].Liquidity)

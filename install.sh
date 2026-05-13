@@ -34,7 +34,7 @@ if ! command -v apt-get &>/dev/null && ! command -v yum &>/dev/null; then
     error "OS tidak didukung. Hanya Debian/Ubuntu/CentOS."
 fi
 
-# ─── 3. Install dependencies ──────────────────────────────────────────────────
+# ─── 3. Install dependencies sistem ──────────────────────────────────────────
 info "Menginstal dependencies sistem..."
 if command -v apt-get &>/dev/null; then
     apt-get update -qq
@@ -84,17 +84,21 @@ fi
 # ─── 6. Salin file proyek ─────────────────────────────────────────────────────
 info "Menyalin file proyek ke $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-
-# Dapatkan direktori skrip ini
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Salin semua file Go + static
-cp -r "$SCRIPT_DIR"/*.go "$INSTALL_DIR/" 2>/dev/null || true
-cp -r "$SCRIPT_DIR/go.mod" "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/go.sum" "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/static" "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR"/*.go    "$INSTALL_DIR/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/go.mod"  "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/go.sum"  "$INSTALL_DIR/"
+cp -r "$SCRIPT_DIR/static"  "$INSTALL_DIR/"
 
-# Salin .env jika ada
+# Salin script operasional
+for script in sell.sh start.sh stop.sh; do
+    if [[ -f "$SCRIPT_DIR/$script" ]]; then
+        cp "$SCRIPT_DIR/$script" "$INSTALL_DIR/$script"
+        chmod +x "$INSTALL_DIR/$script"
+    fi
+done
+
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
     cp "$SCRIPT_DIR/.env" "$INSTALL_DIR/.env"
     warn ".env disalin — pastikan PRIVATE_KEY aman (chmod 600 $INSTALL_DIR/.env)"
@@ -105,7 +109,7 @@ success "File proyek berhasil disalin ke $INSTALL_DIR"
 # ─── 7. Build binary ──────────────────────────────────────────────────────────
 info "Membangun binary ($BINARY_NAME)..."
 cd "$INSTALL_DIR"
-go mod download -x 2>&1 | tail -5
+go mod download 2>&1 | tail -3
 go build -ldflags="-s -w" -o "$BINARY_NAME" . || error "Build gagal"
 chmod +x "$BINARY_NAME"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
@@ -120,11 +124,15 @@ if [[ ! -f "$ENV_FILE" ]]; then
 PORT=${PORT}
 
 # ─── Live Trading ─────────────────────────────────────────────────────────────
-# Catatan: cukup set PRIVATE_KEY untuk mengaktifkan live trading
+# Cukup set PRIVATE_KEY untuk mengaktifkan live trading
 # PRIVATE_KEY=hex_private_key_tanpa_0x
 # BASE_RPC_URL=https://mainnet.base.org
+# BASE_RPC_URL_BACKUP=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
 # TRADE_SIZE_ETH=0.001
 # SLIPPAGE_PCT=5.0
+
+# ─── Risk Level ───────────────────────────────────────────────────────────────
+# RISK_LEVEL=normal   # conservative | normal (default) | aggressive
 EOF
     chmod 600 "$ENV_FILE"
     chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
@@ -172,25 +180,121 @@ else
     warn "Service mungkin ada masalah. Cek: journalctl -u ${SERVICE_NAME} -n 30"
 fi
 
-# ─── 10. Selesai ──────────────────────────────────────────────────────────────
+# ─── 10. Nginx + SSL (opsional) ───────────────────────────────────────────────
+VPS_IP=$(curl -s ifconfig.me 2>/dev/null || echo "YOUR_IP")
+
+echo ""
+echo -e "${BOLD}━━━ Nginx + SSL (Opsional) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  Dashboard saat ini bisa diakses via: ${GREEN}http://${VPS_IP}:${PORT}${NC}"
+echo -e "  Jika kamu punya domain, Nginx + SSL otomatis bisa dipasang sekarang."
+echo ""
+read -rp "$(echo -e "${YELLOW}Pasang Nginx + SSL sekarang? [y/N]: ${NC}")" NGINX_CONFIRM
+
+if [[ "${NGINX_CONFIRM,,}" == "y" ]]; then
+    read -rp "$(echo -e "${CYAN}Masukkan nama domain (contoh: hunter.domainku.com): ${NC}")" DOMAIN
+    DOMAIN="${DOMAIN// /}"
+
+    if [[ -z "$DOMAIN" ]]; then
+        warn "Domain kosong — lewati konfigurasi Nginx."
+    else
+        # Install Nginx + Certbot
+        info "Menginstal Nginx dan Certbot..."
+        if command -v apt-get &>/dev/null; then
+            apt-get install -y -qq nginx certbot python3-certbot-nginx
+        else
+            yum install -y nginx certbot python3-certbot-nginx
+        fi
+        success "Nginx dan Certbot terinstal"
+
+        # Konfigurasi Nginx
+        info "Mengkonfigurasi Nginx untuk ${DOMAIN}..."
+        cat > "/etc/nginx/sites-available/${SERVICE_NAME}" <<NGINXCONF
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    # Redirect semua HTTP ke HTTPS (diisi oleh certbot)
+    location / {
+        proxy_pass         http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade \$http_upgrade;
+        proxy_set_header   Connection keep-alive;
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 60s;
+    }
+}
+NGINXCONF
+
+        # Aktifkan site
+        mkdir -p /etc/nginx/sites-enabled
+        ln -sf "/etc/nginx/sites-available/${SERVICE_NAME}" \
+               "/etc/nginx/sites-enabled/${SERVICE_NAME}"
+
+        # Hapus default site jika ada
+        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+        nginx -t && systemctl reload nginx
+        success "Nginx dikonfigurasi untuk ${DOMAIN}"
+
+        # Ambil SSL certificate
+        info "Mengambil SSL certificate dari Let's Encrypt untuk ${DOMAIN}..."
+        read -rp "$(echo -e "${CYAN}Email untuk Let's Encrypt (untuk notifikasi expire): ${NC}")" LE_EMAIL
+
+        if [[ -n "$LE_EMAIL" ]]; then
+            certbot --nginx \
+                -d "${DOMAIN}" \
+                --non-interactive \
+                --agree-tos \
+                --email "${LE_EMAIL}" \
+                --redirect \
+                && success "SSL berhasil! Dashboard: https://${DOMAIN}" \
+                || warn "Certbot gagal. Pastikan domain ${DOMAIN} mengarah ke IP ${VPS_IP} dan port 80 terbuka."
+        else
+            warn "Email kosong — SSL tidak dipasang. Jalankan manual: certbot --nginx -d ${DOMAIN}"
+        fi
+
+        # Auto-renew SSL via cron
+        if ! crontab -l 2>/dev/null | grep -q "certbot renew"; then
+            (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | crontab -
+            success "Auto-renew SSL ditambahkan ke cron (setiap hari jam 03:00)"
+        fi
+    fi
+fi
+
+# ─── Selesai ──────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║          Instalasi Selesai!              ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  Dashboard : ${GREEN}http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_IP'):${PORT}${NC}"
+
+if [[ "${NGINX_CONFIRM,,}" == "y" && -n "${DOMAIN:-}" ]]; then
+    echo -e "  Dashboard : ${GREEN}https://${DOMAIN}${NC}"
+fi
+echo -e "  Dashboard : ${GREEN}http://${VPS_IP}:${PORT}${NC}"
 echo -e "  Config    : ${CYAN}${ENV_FILE}${NC}"
-echo -e "  Binary    : ${CYAN}${INSTALL_DIR}/${BINARY_NAME}${NC}"
+echo -e "  State     : ${CYAN}${INSTALL_DIR}/state.json${NC}  (posisi tersimpan)"
 echo ""
-echo -e "${BOLD}Perintah berguna:${NC}"
-echo -e "  Status  : systemctl status ${SERVICE_NAME}"
-echo -e "  Log     : journalctl -u ${SERVICE_NAME} -f"
-echo -e "  Restart : systemctl restart ${SERVICE_NAME}"
-echo -e "  Stop    : systemctl stop ${SERVICE_NAME}"
-echo -e "  Config  : nano ${ENV_FILE}  (lalu restart)"
+echo -e "${BOLD}Script operasional:${NC}"
+echo -e "  ${GREEN}bash ${INSTALL_DIR}/start.sh${NC}   — Mulai engine"
+echo -e "  ${GREEN}bash ${INSTALL_DIR}/stop.sh${NC}    — Hentikan engine (jual posisi dulu)"
+echo -e "  ${GREEN}bash ${INSTALL_DIR}/sell.sh${NC}    — Tutup semua posisi (engine tetap jalan)"
+echo ""
+echo -e "${BOLD}Perintah systemd:${NC}"
+echo -e "  systemctl status  ${SERVICE_NAME}"
+echo -e "  journalctl -u ${SERVICE_NAME} -f"
+echo -e "  systemctl restart ${SERVICE_NAME}"
 echo ""
 echo -e "${YELLOW}Untuk mengaktifkan live trading:${NC}"
 echo -e "  1. Edit ${ENV_FILE}"
 echo -e "  2. Hapus komentar PRIVATE_KEY, BASE_RPC_URL, TRADE_SIZE_ETH"
 echo -e "  3. systemctl restart ${SERVICE_NAME}"
+echo ""
+echo -e "${BOLD}Alur stop aman:${NC}"
+echo -e "  bash ${INSTALL_DIR}/stop.sh          — jual semua posisi, lalu stop"
+echo -e "  bash ${INSTALL_DIR}/stop.sh --force  — stop paksa tanpa jual posisi"
 echo ""
