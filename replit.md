@@ -5,37 +5,54 @@ Real-time monitoring + auto-trading engine untuk meme coin di Base network (Aero
 ## Struktur Proyek
 
 ```
-hunter/          ← seluruh source Go
-  main.go        ← entry point + pipeline orchestration
-  fetcher.go     ← DexScreener HTTP ingestion
-  normalizer.go  ← raw → TokenInfo struct
-  filter.go      ← 3-layer filter engine
-  scorer.go      ← 0-100 weighted scoring
-  signal.go      ← NEW_LISTING / MOMENTUM / BREAKOUT detection
-  cache.go       ← in-memory state + VolumeSpike calculation
-  strategy.go    ← entry/exit rule engine (CheckEntry / CheckExit)
-  executor.go    ← PaperExecutor + LiveExecutor (Base + Aerodrome)
-  position.go    ← PositionManager (open/close/monitor trades)
-  api.go         ← REST endpoints + CORS
-  stats.go       ← uptime/cycle counters
-  types.go       ← semua shared structs
-  go.mod         ← Go module
-  static/
-    index.html   ← dark dashboard (tabbed, realtime)
-  LIVE_TRADING.md ← panduan live trading on-chain
+main.go        ← entry point + pipeline orchestration
+fetcher.go     ← DexScreener HTTP ingestion
+normalizer.go  ← raw → TokenInfo struct
+filter.go      ← 3-layer filter engine
+scorer.go      ← 0-100 weighted scoring
+signal.go      ← NEW_LISTING / MOMENTUM / BREAKOUT detection
+cache.go       ← in-memory state + VolumeSpike calculation
+strategy.go    ← entry/exit rule engine (CheckEntry / CheckExit)
+executor.go    ← PaperExecutor + LiveExecutor (Base + Aerodrome)
+position.go    ← PositionManager (open/close/monitor trades)
+api.go         ← REST endpoints + CORS
+stats.go       ← uptime/cycle counters
+types.go       ← semua shared structs
+go.mod         ← Go module
+static/
+  index.html   ← dark dashboard (tabbed, realtime)
+install.sh     ← VPS one-command installer
+.env.example   ← template konfigurasi environment
+LIVE_TRADING.md ← panduan live trading on-chain
 ```
 
-## Run
+## Run (Replit)
 
 ```bash
-# Replit (preview di /hunter/)
-cd hunter && PORT=8099 go run .
-
-# VPS
-cd hunter
-go build -o hunter-engine .
-PORT=8080 ./hunter-engine
+PORT=5000 go run .
 ```
+
+## VPS Install (Satu Perintah)
+
+```bash
+# 1. Clone repo
+git clone https://github.com/YOUR_USER/meme-hunter.git
+cd meme-hunter
+
+# 2. (Opsional) Salin dan edit config
+cp .env.example .env
+nano .env
+
+# 3. Jalankan installer
+sudo bash install.sh
+```
+
+Installer akan automatik:
+- Pasang Go 1.21 jika belum ada
+- Build binary optimized (`-ldflags="-s -w"`)
+- Cipta user sistem terhad (`meme-hunter`)
+- Daftar dan aktifkan systemd service
+- Paparkan IP + port dashboard
 
 ## Stack
 
@@ -63,7 +80,7 @@ PORT=8080 ./hunter-engine
 
 **Entry (semua harus terpenuhi):**
 - score ≥ 75, buyRatio ≥ 0.65, volumeSpike ≥ 2x
-- liquidity ≥ $15k, age 5–90 menit
+- liquidity ≥ $15k, age 5–90 minit
 - pricePump5m ≤ 120%
 
 **Exit:**
@@ -71,57 +88,43 @@ PORT=8080 ./hunter-engine
 - TP2: +25% → close semua
 - SL: -10% → close semua
 - Emergency: buyRatio < 0.50, sudden dump -15%, volume drop
-- Time exit: hold ≥ 8 menit & profit < 5%
+- Time exit: hold ≥ 8 minit & profit < 5%
 
 **Position:** max 3 open, $1 per trade (paper mode default)
 
 ## Mode Trading
 
 ```bash
-# Paper trading (default, aman)
-PORT=8080 ./hunter-engine
+# Paper trading (default, selamat)
+PORT=8080 ./meme-hunter
 
 # Live trading on-chain (Base + Aerodrome)
 LIVE_TRADING=true \
 PRIVATE_KEY=your_hex_key \
 BASE_RPC_URL=https://mainnet.base.org \
-PORT=8080 ./hunter-engine
+PORT=8080 ./meme-hunter
 ```
 
 Lihat `LIVE_TRADING.md` untuk setup lengkap on-chain execution.
 
-## VPS Deployment
+## Perintah VPS Selepas Install
 
 ```bash
-# 1. Install Go
-wget https://go.dev/dl/go1.21.13.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.13.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && source ~/.bashrc
+# Status
+systemctl status meme-hunter
 
-# 2. Build
-cd hunter
-go build -o hunter-engine .
+# Log realtime
+journalctl -u meme-hunter -f
 
-# 3. Run sebagai service
-sudo tee /etc/systemd/system/hunter.service > /dev/null <<EOF
-[Unit]
-Description=Base Meme Coin Hunter
-After=network.target
+# Restart
+systemctl restart meme-hunter
 
-[Service]
-ExecStart=/home/ubuntu/hunter/hunter-engine
-WorkingDirectory=/home/ubuntu/hunter
-Restart=always
-RestartSec=5
-Environment=PORT=8080
+# Edit config (PORT, PRIVATE_KEY, dll)
+nano /opt/meme-hunter/.env
+systemctl restart meme-hunter
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable hunter
-sudo systemctl start hunter
+# Stop
+systemctl stop meme-hunter
 ```
 
 ## Arsitektur
@@ -135,6 +138,10 @@ sudo systemctl start hunter
 ## Catatan Penting
 
 - DexScreener rate limit: jangan polling < 3s
-- Port 8080 dipakai Replit system → gunakan PORT=8099 di Replit
 - Token dengan `pairCreatedAt=0` (age unknown) di-skip untuk entry
 - Live trading butuh go-ethereum — lihat LIVE_TRADING.md
+- Jangan commit `.env` ke git (sudah di `.gitignore`)
+
+## User Preferences
+
+- Bahasa komunikasi: Bahasa Melayu / Indonesia

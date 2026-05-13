@@ -1,9 +1,12 @@
 # Go binaries
-hunter/hunter-engine
-hunter/meme-hunter
+meme-hunter
+hunter-engine
+
+# Env secrets
+.env
 
 # macOS
-.DS_Storę
+.DS_Store
 
 # IDE
 .vscode/
