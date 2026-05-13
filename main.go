@@ -48,6 +48,17 @@ func main() {
                 }
         }
 
+        // ── Muat config tersimpan dari config.json (override env vars) ────────────
+        // Jika pengguna pernah menyimpan config via /config save di Telegram,
+        // config tersebut dipakai menggantikan nilai default dari env vars.
+        if saved, err := LoadConfig(); err != nil {
+                logger.Printf("[config] ⚠️  Gagal baca config.json: %v", err)
+        } else if saved != nil {
+                *cfg = *saved
+                logger.Printf("[config] ✅ Config dimuat dari config.json (risk=%s score≥%.0f liq≥$%.0f)",
+                        cfg.RiskLevel, cfg.MinScore, cfg.MinLiquidityUSD)
+        }
+
         stats := NewStatsCounter()
         cache := NewCache()
         bl := NewBlacklist()

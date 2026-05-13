@@ -7,7 +7,39 @@ import (
         "time"
 )
 
-const stateFile = "state.json"
+const stateFile  = "state.json"
+const configFile = "config.json"
+
+// SaveConfig menyimpan StrategyConfig ke config.json secara atomic.
+// Dipanggil otomatis setiap kali config diubah via Telegram /config.
+func SaveConfig(cfg StrategyConfig) error {
+        data, err := json.MarshalIndent(cfg, "", "  ")
+        if err != nil {
+                return err
+        }
+        tmp := configFile + ".tmp"
+        if err := os.WriteFile(tmp, data, 0600); err != nil {
+                return err
+        }
+        return os.Rename(tmp, configFile)
+}
+
+// LoadConfig memuat StrategyConfig dari config.json.
+// Mengembalikan nil, nil jika file tidak ada (fresh start — gunakan default).
+func LoadConfig() (*StrategyConfig, error) {
+        data, err := os.ReadFile(configFile)
+        if err != nil {
+                if errors.Is(err, os.ErrNotExist) {
+                        return nil, nil
+                }
+                return nil, err
+        }
+        var cfg StrategyConfig
+        if err := json.Unmarshal(data, &cfg); err != nil {
+                return nil, err
+        }
+        return &cfg, nil
+}
 
 // SaveState menyimpan posisi, trade log, dan blacklist ke disk.
 // Deep-copy dilakukan di dalam lock agar tidak ada race condition dengan

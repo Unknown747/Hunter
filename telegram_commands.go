@@ -240,6 +240,7 @@ func (tg *TelegramNotifier) cmdHelp() {
                         "  /config buyratio 0.65    — ubah min buy ratio\n" +
                         "  /config liq 20000        — ubah min liquidity\n" +
                         "  /config risk normal      — ganti preset risiko\n" +
+                        "  /config save             — simpan config ke disk\n" +
                         "  /config reset            — reset ke default\n\n" +
                         "<b>🔔 Filter Alert Sinyal</b>\n" +
                         "  /alert            — lihat filter aktif\n" +
@@ -705,13 +706,22 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
         sub := strings.ToLower(args[0])
 
         switch sub {
+        case "save":
+                cfg := pm.GetConfig()
+                if err := SaveConfig(cfg); err != nil {
+                        tg.send(fmt.Sprintf("❌ Gagal simpan config: %v", err))
+                        return
+                }
+                tg.send("💾 <b>Config berhasil disimpan ke disk.</b>\nConfig ini akan dimuat otomatis saat engine restart.")
+
         case "reset":
                 pm.UpdateConfig(func(c *StrategyConfig) {
                         risk := c.RiskLevel
                         *c = *ConfigForRisk(risk)
                 })
+                tg.autoSaveConfig(pm)
                 tg.configShow(pm)
-                tg.send("♻️ <b>Konfigurasi direset ke default.</b>")
+                tg.send("♻️ <b>Konfigurasi direset ke default dan disimpan.</b>")
 
         case "risk":
                 if len(args) < 2 {
@@ -729,7 +739,8 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                         newCfg.MaxMarketCapUSD = c.MaxMarketCapUSD
                         *c = *newCfg
                 })
-                tg.send(fmt.Sprintf("✅ <b>Risk level diubah ke: %s</b>\n<i>(filter market cap dipertahankan)</i>", level))
+                tg.autoSaveConfig(pm)
+                tg.send(fmt.Sprintf("✅ <b>Risk level diubah ke: %s</b>\n<i>(filter market cap dipertahankan, config disimpan)</i>", level))
                 tg.configShow(pm)
 
         case "mcap":
@@ -744,7 +755,8 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                                 c.MinMarketCapUSD = 0
                                 c.MaxMarketCapUSD = 0
                         })
-                        tg.send("✅ <b>Filter market cap dinonaktifkan.</b>\nEntry tidak dibatasi oleh market cap.")
+                        tg.autoSaveConfig(pm)
+                        tg.send("✅ <b>Filter market cap dinonaktifkan dan disimpan.</b>")
                 case "min":
                         if len(args) < 3 {
                                 tg.send("❌ Format: <code>/config mcap min 50000</code>")
@@ -756,10 +768,11 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                                 return
                         }
                         pm.UpdateConfig(func(c *StrategyConfig) { c.MinMarketCapUSD = v })
+                        tg.autoSaveConfig(pm)
                         if v == 0 {
-                                tg.send("✅ <b>Min market cap dihapus</b> — tidak ada batas bawah market cap.")
+                                tg.send("✅ <b>Min market cap dihapus dan disimpan.</b>")
                         } else {
-                                tg.send(fmt.Sprintf("✅ <b>Min market cap: $%.0f</b>\nToken dengan mcap di bawah $%.0f akan diabaikan.", v, v))
+                                tg.send(fmt.Sprintf("✅ <b>Min market cap: $%.0f</b> (disimpan)\nToken dengan mcap di bawah $%.0f akan diabaikan.", v, v))
                         }
                 case "max":
                         if len(args) < 3 {
@@ -772,10 +785,11 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                                 return
                         }
                         pm.UpdateConfig(func(c *StrategyConfig) { c.MaxMarketCapUSD = v })
+                        tg.autoSaveConfig(pm)
                         if v == 0 {
-                                tg.send("✅ <b>Max market cap dihapus</b> — tidak ada batas atas market cap.")
+                                tg.send("✅ <b>Max market cap dihapus dan disimpan.</b>")
                         } else {
-                                tg.send(fmt.Sprintf("✅ <b>Max market cap: $%.0f</b>\nToken dengan mcap di atas $%.0f akan diabaikan.", v, v))
+                                tg.send(fmt.Sprintf("✅ <b>Max market cap: $%.0f</b> (disimpan)\nToken dengan mcap di atas $%.0f akan diabaikan.", v, v))
                         }
                 default:
                         tg.send("❌ Sub-perintah tidak dikenal.\nGunakan: <code>min</code>, <code>max</code>, atau <code>reset</code>")
@@ -792,7 +806,8 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                         return
                 }
                 pm.UpdateConfig(func(c *StrategyConfig) { c.MinScore = v })
-                tg.send(fmt.Sprintf("✅ <b>Min score diubah: ≥ %.0f</b>", v))
+                tg.autoSaveConfig(pm)
+                tg.send(fmt.Sprintf("✅ <b>Min score diubah: ≥ %.0f</b> (disimpan)", v))
 
         case "buyratio":
                 if len(args) < 2 {
@@ -805,7 +820,8 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                         return
                 }
                 pm.UpdateConfig(func(c *StrategyConfig) { c.MinBuyRatio = v })
-                tg.send(fmt.Sprintf("✅ <b>Min buy ratio diubah: ≥ %.2f (%.0f%%)</b>", v, v*100))
+                tg.autoSaveConfig(pm)
+                tg.send(fmt.Sprintf("✅ <b>Min buy ratio diubah: ≥ %.2f (%.0f%%)</b> (disimpan)", v, v*100))
 
         case "liq":
                 if len(args) < 2 {
@@ -818,7 +834,8 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                         return
                 }
                 pm.UpdateConfig(func(c *StrategyConfig) { c.MinLiquidityUSD = v })
-                tg.send(fmt.Sprintf("✅ <b>Min liquidity diubah: ≥ $%.0f</b>", v))
+                tg.autoSaveConfig(pm)
+                tg.send(fmt.Sprintf("✅ <b>Min liquidity diubah: ≥ $%.0f</b> (disimpan)", v))
 
         default:
                 tg.send(fmt.Sprintf(
@@ -832,9 +849,19 @@ func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
                                 "  /config buyratio 0.65\n"+
                                 "  /config liq 20000\n"+
                                 "  /config risk normal\n"+
+                                "  /config save\n"+
                                 "  /config reset",
                         sub,
                 ))
+        }
+}
+
+// autoSaveConfig menyimpan config saat ini ke disk secara diam-diam (tanpa notif).
+// Dipanggil otomatis setelah setiap perubahan config via Telegram.
+func (tg *TelegramNotifier) autoSaveConfig(pm *PositionManager) {
+        cfg := pm.GetConfig()
+        if err := SaveConfig(cfg); err != nil {
+                logger.Printf("[config] ⚠️  Auto-save config gagal: %v", err)
         }
 }
 
