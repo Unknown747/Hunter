@@ -577,8 +577,8 @@ func (pm *PositionManager) openCount() int {
 // HasOpenPosition returns true jika ada posisi terbuka untuk pair ini.
 // Dipakai oleh pipeline untuk bypass filter umur pada token yang sedang dipegang.
 func (pm *PositionManager) HasOpenPosition(pairAddress string) bool {
-        pm.mu.Lock()
-        defer pm.mu.Unlock()
+        pm.mu.RLock()
+        defer pm.mu.RUnlock()
         return pm.hasOpenFor(pairAddress)
 }
 

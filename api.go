@@ -4,24 +4,21 @@ import (
         "encoding/json"
         "net/http"
         "strings"
-        "time"
 )
 
 type APIServer struct {
-        cache     *Cache
-        stats     *StatsCounter
-        pm        *PositionManager
-        bl        *Blacklist
-        startTime time.Time
+        cache *Cache
+        stats *StatsCounter
+        pm    *PositionManager
+        bl    *Blacklist
 }
 
 func NewAPIServer(cache *Cache, stats *StatsCounter, pm *PositionManager, bl *Blacklist) *APIServer {
         return &APIServer{
-                cache:     cache,
-                stats:     stats,
-                pm:        pm,
-                bl:        bl,
-                startTime: time.Now(),
+                cache: cache,
+                stats: stats,
+                pm:    pm,
+                bl:    bl,
         }
 }
 
@@ -42,6 +39,7 @@ func (a *APIServer) Routes() http.Handler {
                 mux.HandleFunc(p+"/api/trading-stats", a.handleTradingStats)
                 mux.HandleFunc(p+"/api/blacklist", a.handleBlacklist)
                 mux.HandleFunc(p+"/api/rug-patterns", a.handleRugPatterns)
+                mux.HandleFunc(p+"/api/pipeline-stats", a.handlePipelineStats)
                 mux.HandleFunc(p+"/api/close-all", a.handleCloseAll)
                 mux.HandleFunc(p+"/api/manual-buy", a.handleManualBuy)
                 mux.HandleFunc(p+"/api/manual-sell", a.handleManualSell)
@@ -92,6 +90,11 @@ func (a *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
         writeJSON(w, a.cache.Stats(a.stats))
 }
 
+// handlePipelineStats mengembalikan statistik filter pipeline (berapa token lolos/ditolak dan mengapa).
+func (a *APIServer) handlePipelineStats(w http.ResponseWriter, r *http.Request) {
+        writeJSON(w, a.stats.PipelineStats())
+}
+
 // handleHealth mengembalikan status engine untuk monitoring/uptime checker.
 func (a *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
         st := a.cache.Stats(a.stats)
@@ -109,7 +112,7 @@ func (a *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
                 TrackedTokens: st.TotalTracked,
                 OpenPositions: openCount,
                 RiskLevel:     a.pm.cfg.RiskLevel,
-                LastPollAgo:   fmtDuration(time.Since(a.startTime)),
+                LastPollAgo:   a.stats.LastTokenAgo(),
         })
 }
 

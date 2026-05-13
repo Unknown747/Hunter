@@ -91,11 +91,11 @@ func main() {
         fetcher := NewFetcher(rawPairs)
         go fetcher.Run(stop, stats)
 
-        // Factory watcher: sumber utama koin BARU — monitor Aerodrome factory on-chain
+        // Factory watcher: sumber utama koin BARU — monitor factory on-chain
         // Mendeteksi event PairCreated langsung dari blockchain Base, lebih cepat dari API manapun
         go RunFactoryWatcher(rawPairs)
 
-        go runPipeline(rawPairs, cache, pm, stop)
+        go runPipeline(rawPairs, cache, pm, stats, stop)
         go cache.Cleanup(stop)
 
         server := NewAPIServer(cache, stats, pm, bl)
@@ -107,8 +107,25 @@ func main() {
         }
 }
 
-func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-chan struct{}) {
-        var totalSeen, totalPassed, loggedAt int
+// rejectSample menyimpan sample penolakan untuk logging diagnostik periodik.
+type rejectSample struct {
+        symbol string
+        age    float64
+        reason string
+}
+
+func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *StatsCounter, stop <-chan struct{}) {
+        var (
+                totalSeen   int
+                totalPassed int
+                loggedAt    int
+
+                // Diagnostik: kumpulkan contoh penolakan tiap jendela 100 token
+                rejectSamples  []rejectSample
+                rejectReasons  = make(map[string]int) // reason prefix → count
+                sampleWindowAt int                     // totalSeen saat window terakhir di-reset
+        )
+
         for {
                 select {
                 case <-stop:
@@ -126,26 +143,90 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stop <-
                                 // kita tetap perlu update harga meski token sudah > 2 jam
                                 hasPos := pm.HasOpenPosition(p.PairAddress)
                                 totalSeen++
-                                if !hasPos && !Filter(t) {
-                                        continue
+
+                                if !hasPos {
+                                        res := FilterWithReason(t)
+                                        if !res.Pass {
+                                                // Kumpulkan sample untuk diagnostik lokal (maks 5 per window)
+                                                if len(rejectSamples) < 5 {
+                                                        rejectSamples = append(rejectSamples, rejectSample{
+                                                                symbol: t.Symbol,
+                                                                age:    t.PairAgeHours,
+                                                                reason: res.Reason,
+                                                        })
+                                                }
+                                                // Hitung frekuensi setiap jenis penolakan (lokal + global)
+                                                prefix := reasonPrefix(res.Reason)
+                                                rejectReasons[prefix]++
+                                                stats.RecordReject(res.Reason)
+                                                stats.RecordSeen()
+                                                continue
+                                        }
                                 }
+
+                                stats.RecordSeen()
                                 totalPassed++
                                 batchPassed++
                                 t.Score = Score(t)
                                 t.Category = Categorize(t.Score)
                                 priorState, _ := cache.Upsert(t)
                                 pm.OnTokenUpdate(t, &priorState)
+                                stats.RecordPassed()
+                                stats.SetLastTokenTime()
                         }
 
-                        // Log setiap 100 token yang diproses agar user tahu kondisi pipeline
+                        // Log ringkasan setiap 100 token yang diproses
                         if totalSeen/100 > loggedAt/100 {
                                 loggedAt = totalSeen
-                                logger.Printf("[pipeline] 📊 Diproses: %d pair total | Lolos filter: %d (%.0f%%) | Ditolak: %d",
-                                        totalSeen, totalPassed, float64(totalPassed)/float64(totalSeen)*100, totalSeen-totalPassed)
+                                pct := float64(totalPassed) / float64(totalSeen) * 100
+
+                                logger.Printf("[pipeline] 📊 Diproses: %d pair total | Lolos: %d (%.1f%%) | Ditolak: %d",
+                                        totalSeen, totalPassed, pct, totalSeen-totalPassed)
+
+                                // Tampilkan distribusi alasan penolakan sejak window terakhir
+                                windowSize := totalSeen - sampleWindowAt
+                                if windowSize > 0 && len(rejectReasons) > 0 {
+                                        logger.Printf("[pipeline] 🔍 Alasan penolakan (last %d token):", windowSize)
+                                        for reason, count := range rejectReasons {
+                                                logger.Printf("[pipeline]   • %s → %d token (%.0f%%)",
+                                                        reason, count, float64(count)/float64(windowSize)*100)
+                                        }
+                                        // Tampilkan beberapa contoh konkret
+                                        for _, s := range rejectSamples {
+                                                logger.Printf("[pipeline]     contoh: %s (%.0fm) — %s", s.symbol, s.age*60, s.reason)
+                                        }
+                                }
+
+                                // Reset window diagnostik
+                                rejectSamples = rejectSamples[:0]
+                                rejectReasons = make(map[string]int)
+                                sampleWindowAt = totalSeen
                         }
+
+                        // Notifikasi segera jika ada token baru yang lolos (khusus dari factory watcher)
                         if batchPassed > 0 {
-                                logger.Printf("[pipeline] ✅ Batch %d pair → %d lolos filter (baru < 2 jam)", len(pairs), batchPassed)
+                                logger.Printf("[pipeline] ✅ Batch %d pair → %d lolos filter", len(pairs), batchPassed)
                         }
                 }
         }
+}
+
+// reasonPrefix mengekstrak kata pertama dari alasan penolakan untuk pengelompokan.
+func reasonPrefix(reason string) string {
+        if len(reason) == 0 {
+                return "unknown"
+        }
+        // Ambil kata pertama (sebelum ':' atau ' ')
+        for i, c := range reason {
+                if c == ':' || c == '=' {
+                        if i > 0 {
+                                return reason[:i]
+                        }
+                }
+        }
+        // Jika tidak ada pemisah, ambil 20 karakter pertama
+        if len(reason) > 20 {
+                return reason[:20]
+        }
+        return reason
 }
