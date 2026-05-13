@@ -125,12 +125,12 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
         var (
                 totalSeen   int
                 totalPassed int
-                loggedAt    int
 
-                // Diagnostik: kumpulkan contoh penolakan tiap jendela 100 token
-                rejectSamples  []rejectSample
-                rejectReasons  = make(map[string]int) // reason prefix → count
-                sampleWindowAt int                     // totalSeen saat window terakhir di-reset
+                // Skip cache: pair address yang sudah diketahui TERLALU TUA atau TANPA UMUR.
+                // Sekali dimasukkan, tidak akan diproses lagi — mengurangi noise di log dan CPU.
+                // Key: lowercase pair address. Value: kapan pertama kali diblokir (untuk log sekali saja).
+                oldPairs    = make(map[string]struct{})
+                skippedOld  int // counter: berapa pair yang di-skip dari cache
         )
 
         for {
@@ -142,32 +142,38 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
                                 return
                         }
                         batchPassed := 0
+                        batchNew    := 0 // pair baru yang belum ada di skip cache
                         for i := range pairs {
                                 p := &pairs[i]
-                                t := Normalize(p)
+                                addr := strings.ToLower(p.PairAddress)
 
-                                // Bypass filter umur untuk token yang sudah ada posisi terbuka —
-                                // kita tetap perlu update harga meski token sudah > 2 jam
-                                // PENTING: gunakan lowercase agar cocok dengan pairAddress yang tersimpan di posisi
-                                hasPos := pm.HasOpenPosition(strings.ToLower(p.PairAddress))
+                                // ── Skip cache: lewati langsung jika sudah diketahui tua ──────────
+                                if _, isOld := oldPairs[addr]; isOld {
+                                        skippedOld++
+                                        continue
+                                }
+
+                                // Bypass filter umur untuk posisi terbuka — tetap update harga
+                                hasPos := pm.HasOpenPosition(addr)
                                 totalSeen++
+                                batchNew++
+
+                                t := Normalize(p)
 
                                 if !hasPos {
                                         res := FilterWithReason(t)
                                         if !res.Pass {
-                                                // Kumpulkan sample untuk diagnostik lokal (maks 5 per window)
-                                                if len(rejectSamples) < 5 {
-                                                        rejectSamples = append(rejectSamples, rejectSample{
-                                                                symbol: t.Symbol,
-                                                                age:    t.PairAgeHours,
-                                                                reason: res.Reason,
-                                                        })
-                                                }
-                                                // Hitung frekuensi setiap jenis penolakan (lokal + global)
-                                                prefix := reasonPrefix(res.Reason)
-                                                rejectReasons[prefix]++
                                                 stats.RecordReject(res.Reason)
                                                 stats.RecordSeen()
+
+                                                // Jika ditolak karena umur (tua permanen atau tanpa data) →
+                                                // masukkan ke skip cache agar tidak muncul lagi
+                                                prefix := reasonPrefix(res.Reason)
+                                                if prefix == "terlalu tua" || prefix == "umur" {
+                                                        oldPairs[addr] = struct{}{}
+                                                        logger.Printf("[pipeline] 🚫 Skip permanen: %s (%s) — tidak akan di-scan lagi",
+                                                                t.Symbol, res.Reason)
+                                                }
                                                 continue
                                         }
                                 }
@@ -179,7 +185,6 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
                                 t.Category = Categorize(t.Score)
                                 priorState, _ := cache.Upsert(t)
                                 pm.OnTokenUpdate(t, &priorState)
-                                // Deteksi sinyal dan forward ke Telegram
                                 if sigs := DetectSignals(t, &priorState); len(sigs) > 0 {
                                         for _, sig := range sigs {
                                                 tg.NotifySignal(sig, t)
@@ -189,37 +194,14 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
                                 stats.SetLastTokenTime()
                         }
 
-                        // Log ringkasan setiap 100 token yang diproses
-                        if totalSeen/100 > loggedAt/100 {
-                                loggedAt = totalSeen
-                                pct := float64(totalPassed) / float64(totalSeen) * 100
-
-                                logger.Printf("[pipeline] 📊 Diproses: %d pair total | Lolos: %d (%.1f%%) | Ditolak: %d",
-                                        totalSeen, totalPassed, pct, totalSeen-totalPassed)
-
-                                // Tampilkan distribusi alasan penolakan sejak window terakhir
-                                windowSize := totalSeen - sampleWindowAt
-                                if windowSize > 0 && len(rejectReasons) > 0 {
-                                        logger.Printf("[pipeline] 🔍 Alasan penolakan (last %d token):", windowSize)
-                                        for reason, count := range rejectReasons {
-                                                logger.Printf("[pipeline]   • %s → %d token (%.0f%%)",
-                                                        reason, count, float64(count)/float64(windowSize)*100)
-                                        }
-                                        // Tampilkan beberapa contoh konkret
-                                        for _, s := range rejectSamples {
-                                                logger.Printf("[pipeline]     contoh: %s (%.0fm) — %s", s.symbol, s.age*60, s.reason)
-                                        }
-                                }
-
-                                // Reset window diagnostik
-                                rejectSamples = rejectSamples[:0]
-                                rejectReasons = make(map[string]int)
-                                sampleWindowAt = totalSeen
-                        }
-
-                        // Notifikasi segera jika ada token baru yang lolos (khusus dari factory watcher)
+                        // Log ringkasan hanya jika ada pair baru yang diproses atau ada yang lolos
                         if batchPassed > 0 {
-                                logger.Printf("[pipeline] ✅ Batch %d pair → %d lolos filter", len(pairs), batchPassed)
+                                logger.Printf("[pipeline] ✅ %d pair lolos filter (total seen=%d passed=%d skip-cache=%d)",
+                                        batchPassed, totalSeen, totalPassed, skippedOld)
+                        } else if batchNew > 0 && skippedOld%500 == 1 {
+                                // Log status skip cache periodik (setiap 500 skip) agar tahu cache bekerja
+                                logger.Printf("[pipeline] 📊 Skip cache aktif: %d pair lama diabaikan | seen=%d passed=%d cache-size=%d",
+                                        skippedOld, totalSeen, totalPassed, len(oldPairs))
                         }
                 }
         }
