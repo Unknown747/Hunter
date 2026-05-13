@@ -148,7 +148,8 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
 
                                 // Bypass filter umur untuk token yang sudah ada posisi terbuka —
                                 // kita tetap perlu update harga meski token sudah > 2 jam
-                                hasPos := pm.HasOpenPosition(p.PairAddress)
+                                // PENTING: gunakan lowercase agar cocok dengan pairAddress yang tersimpan di posisi
+                                hasPos := pm.HasOpenPosition(strings.ToLower(p.PairAddress))
                                 totalSeen++
 
                                 if !hasPos {

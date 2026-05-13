@@ -67,7 +67,7 @@ channel = "stable-25_05"
 
 [userenv.shared]
 BASE_RPC_URL = "https://base-rpc.publicnode.com"
-TRADE_SIZE_ETH = "0.0001"
+TRADE_SIZE_ETH = "0.00004"
 SLIPPAGE_PCT = "5.0"
 RISK_LEVEL = "normal"
 BASE_RPC_URL_BACKUP = "https://base.drpc.org"

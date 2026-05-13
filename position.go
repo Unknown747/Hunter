@@ -93,6 +93,12 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 
         result := CheckEntry(t, state, pm.cfg)
         if !result.Allow {
+                // Log token yang hampir masuk entry (score ≥ 60) agar bisa diaudit
+                // Ini KRITIS untuk verifikasi bahwa filter berjalan benar
+                if t.Score >= 60 {
+                        logger.Printf("[entry-check] ❌ SKIP %s | age=%.0fm | score=%.1f | liq=$%.0f | buyR=%.2f | spike=%.1fx | reason: %s",
+                                t.Symbol, t.PairAgeHours*60, t.Score, t.Liquidity, t.BuyRatio, t.VolumeSpike, result.Reason)
+                }
                 return
         }
 
