@@ -1,4 +1,4 @@
-modules = ["go-1.21", "web", "bash"]
+modules = ["go-1.21", "bash", "web"]
 
 [deployment]
 router = "application"
