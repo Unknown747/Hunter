@@ -2,137 +2,144 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Base Meme Coin Hunter</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root { --bg:#09090e; --card:#0f1117; --border:#1a1d2e; }
     body { background:var(--bg); font-family:system-ui,sans-serif; user-select:none; }
-    .tab-btn { color:#4b5563; border-bottom:2px solid transparent; cursor:pointer; transition:all .15s; }
+    .tab-btn { color:#4b5563; border-bottom:2px solid transparent; cursor:pointer; transition:all .15s; white-space:nowrap; flex-shrink:0; }
     .tab-btn:hover { color:#9ca3af; }
     .tab-btn.active { border-bottom-color:#6366f1; color:#a5b4fc; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:.75rem; }
     .trow { border-bottom:1px solid #111827; cursor:pointer; transition:background .1s; }
     .trow:hover { background:#0d1020; }
     .trow:last-child { border-bottom:none; }
-    .gem  { border-left:3px solid #059669; }
-    .strong { border-left:3px solid #d97706; }
+    .gem       { border-left:3px solid #059669; }
+    .strong    { border-left:3px solid #d97706; }
     .watchlist { border-left:3px solid #1f2937; }
-    .pos-open   { border-left:3px solid #6366f1; }
-    .pos-win    { border-left:3px solid #059669; }
-    .pos-loss   { border-left:3px solid #dc2626; }
+    .pos-open  { border-left:3px solid #6366f1; }
+    .pos-win   { border-left:3px solid #059669; }
+    .pos-loss  { border-left:3px solid #dc2626; }
     .badge { font-size:.65rem; font-weight:700; padding:.15rem .45rem; border-radius:.3rem; }
-    .b-gem  { background:#064e3b;color:#6ee7b7; }
+    .b-gem    { background:#064e3b;color:#6ee7b7; }
     .b-strong { background:#78350f;color:#fde68a; }
-    .b-watch { background:#1f2937;color:#9ca3af; }
-    .b-sig  { background:#312e81;color:#c7d2fe; }
+    .b-watch  { background:#1f2937;color:#9ca3af; }
+    .b-sig    { background:#312e81;color:#c7d2fe; }
     .b-NEW_LISTING { background:#14532d;color:#86efac; }
-    .b-MOMENTUM   { background:#7c2d12;color:#fdba74; }
-    .b-BREAKOUT   { background:#1e1b4b;color:#a5b4fc; }
+    .b-MOMENTUM    { background:#7c2d12;color:#fdba74; }
+    .b-BREAKOUT    { background:#1e1b4b;color:#a5b4fc; }
     .b-risk-conservative { background:#1e3a5f;color:#93c5fd; }
-    .b-risk-normal { background:#1e293b;color:#94a3b8; }
-    .b-risk-aggressive { background:#4c0519;color:#fca5a5; }
+    .b-risk-normal       { background:#1e293b;color:#94a3b8; }
+    .b-risk-aggressive   { background:#4c0519;color:#fca5a5; }
     .pulse { animation:pulse 2s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
-    .score-bar { height:3px; border-radius:9999px; background:#1f2937; }
+    .score-bar  { height:3px; border-radius:9999px; background:#1f2937; }
     .score-fill { height:3px; border-radius:9999px; }
-    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar{width:4px;height:4px}
     ::-webkit-scrollbar-track{background:var(--bg)}
     ::-webkit-scrollbar-thumb{background:#1e2130;border-radius:4px}
-    #history-panel { transition: max-height .3s ease, opacity .3s; max-height:0; opacity:0; overflow:hidden; }
+    #history-panel { transition:max-height .3s ease,opacity .3s; max-height:0; opacity:0; overflow:hidden; }
     #history-panel.open { max-height:220px; opacity:1; }
+    /* Tab scroll container */
+    .tab-scroll { display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+    .tab-scroll::-webkit-scrollbar { display:none; }
+    /* Mobile token card layout */
+    .token-card-row { border-bottom:1px solid #111827; padding:.75rem 1rem; cursor:pointer; transition:background .1s; }
+    .token-card-row:hover { background:#0d1020; }
+    .token-card-row:last-child { border-bottom:none; }
   </style>
 </head>
 <body class="text-gray-300 min-h-screen">
 
 <!-- Top bar -->
-<div class="sticky top-0 z-20 border-b border-gray-800/60 px-5 py-2.5 flex items-center justify-between" style="background:var(--bg)">
-  <div class="flex items-center gap-3">
-    <div class="w-2 h-2 rounded-full bg-emerald-400 pulse"></div>
-    <span class="font-bold text-white tracking-tight text-sm">Base Meme Coin Hunter</span>
-    <span class="text-xs text-gray-600">Aerodrome · Base Mainnet</span>
-    <span id="risk-badge" class="badge hidden"></span>
+<div class="sticky top-0 z-20 border-b border-gray-800/60 px-3 sm:px-5 py-2.5 flex items-center justify-between gap-2" style="background:var(--bg)">
+  <div class="flex items-center gap-2 min-w-0">
+    <div class="w-2 h-2 rounded-full bg-emerald-400 pulse flex-shrink-0"></div>
+    <span class="font-bold text-white tracking-tight text-sm truncate">Base Meme Hunter</span>
+    <span class="text-xs text-gray-600 hidden sm:inline">Aerodrome · Base Mainnet</span>
+    <span id="risk-badge" class="badge hidden flex-shrink-0"></span>
   </div>
-  <div class="flex items-center gap-5 text-xs text-gray-500">
-    <span id="hdr-info"></span>
-    <span class="px-2 py-0.5 rounded font-bold text-xs bg-red-950 text-red-400">⚡ LIVE</span>
-    <span id="hdr-time" class="text-gray-700 tabular-nums"></span>
+  <div class="flex items-center gap-2 sm:gap-4 text-xs text-gray-500 flex-shrink-0">
+    <span id="hdr-info" class="hidden md:inline tabular-nums"></span>
+    <span class="px-2 py-0.5 rounded font-bold text-xs bg-red-950 text-red-400 flex-shrink-0">⚡ LIVE</span>
+    <span id="hdr-time" class="text-gray-700 tabular-nums hidden sm:inline"></span>
   </div>
 </div>
 
-<div class="max-w-7xl mx-auto px-4 py-4">
+<div class="max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-4">
 
-  <!-- Stat cards -->
-  <div class="grid grid-cols-9 gap-2 mb-4">
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-white" id="s-tracked">—</div>
+  <!-- Stat cards — 3 cols mobile → 5 cols tablet → 9 cols desktop -->
+  <div class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-1.5 sm:gap-2 mb-3 sm:mb-4">
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-white" id="s-tracked">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Tracked</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-emerald-400" id="s-gems">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-emerald-400" id="s-gems">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Gems</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-amber-400" id="s-signals">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-amber-400" id="s-signals">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Signals</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-indigo-400" id="s-open">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-indigo-400" id="s-open">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Open</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-gray-200" id="s-trades">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-gray-200" id="s-trades">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Trades</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold" id="s-winrate">—</div>
-      <div class="text-xs text-gray-600 mt-0.5">Win Rate</div>
+    <div class="card p-2 sm:p-3 text-center col-span-1 sm:col-span-1">
+      <div class="text-lg sm:text-xl font-bold" id="s-winrate">—</div>
+      <div class="text-xs text-gray-600 mt-0.5">Win%</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold" id="s-pnl">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold" id="s-pnl">—</div>
       <div class="text-xs text-gray-600 mt-0.5">P&amp;L $</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold" id="s-netpnl">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold" id="s-netpnl">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Net P&amp;L</div>
     </div>
-    <div class="card p-3 text-center col-span-1">
-      <div class="text-xl font-bold text-gray-400" id="s-cycle">—</div>
+    <div class="card p-2 sm:p-3 text-center">
+      <div class="text-lg sm:text-xl font-bold text-gray-400" id="s-cycle">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Cycles</div>
     </div>
   </div>
 
-  <!-- Score history panel (hidden by default, shown on row click) -->
-  <div id="history-panel" class="card mb-4 px-4 py-3">
+  <!-- Score history panel -->
+  <div id="history-panel" class="card mb-3 sm:mb-4 px-3 sm:px-4 py-3">
     <div class="flex items-center justify-between mb-2">
       <div class="text-xs font-semibold text-gray-400" id="history-label">Score History</div>
-      <button onclick="closeHistory()" class="text-gray-700 hover:text-gray-400 text-xs">✕ tutup</button>
+      <button onclick="closeHistory()" class="text-gray-700 hover:text-gray-400 text-xs py-1 px-2">✕ tutup</button>
     </div>
     <canvas id="history-chart" height="100" class="w-full"></canvas>
   </div>
 
-  <!-- Tab strip -->
-  <div class="flex gap-1 border-b border-gray-800/60 mb-4 flex-wrap">
-    <button class="tab-btn active px-4 py-2 text-xs font-semibold" data-tab="all">All Tokens</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="gems">Gems</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="signals">Signals</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="positions">Positions</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="trades">Trade Log</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="movers">Top Movers</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="hot">Hot Pairs</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="blacklist">Blacklist</button>
-    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="rugpatterns">🚨 Rug Patterns <span id="rug-count" class="ml-1 text-red-500 font-mono"></span></button>
+  <!-- Tab strip — horizontally scrollable on mobile -->
+  <div class="tab-scroll border-b border-gray-800/60 mb-3 sm:mb-4 -mx-2 sm:mx-0 px-2 sm:px-0">
+    <button class="tab-btn active px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="all">All Tokens</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="gems">Gems</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="signals">Signals</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="positions">Positions</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="trades">Trades</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="movers">Movers</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="hot">Hot</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="blacklist">Blacklist</button>
+    <button class="tab-btn px-3 sm:px-4 py-2.5 text-xs font-semibold" data-tab="rugpatterns">🚨 Rugs <span id="rug-count" class="ml-1 text-red-500 font-mono"></span></button>
   </div>
 
   <!-- Views -->
-  <div id="view-all"       class="view"></div>
-  <div id="view-gems"      class="view hidden"></div>
-  <div id="view-signals"   class="view hidden"></div>
-  <div id="view-positions" class="view hidden"></div>
-  <div id="view-trades"    class="view hidden"></div>
-  <div id="view-movers"    class="view hidden"></div>
-  <div id="view-hot"       class="view hidden"></div>
-  <div id="view-blacklist"    class="view hidden"></div>
+  <div id="view-all"         class="view"></div>
+  <div id="view-gems"        class="view hidden"></div>
+  <div id="view-signals"     class="view hidden"></div>
+  <div id="view-positions"   class="view hidden"></div>
+  <div id="view-trades"      class="view hidden"></div>
+  <div id="view-movers"      class="view hidden"></div>
+  <div id="view-hot"         class="view hidden"></div>
+  <div id="view-blacklist"   class="view hidden"></div>
   <div id="view-rugpatterns" class="view hidden"></div>
 
 </div>
@@ -141,6 +148,7 @@
 const BASE = window.location.pathname.startsWith('/hunter') ? '/hunter' : '';
 let currentTab = 'all';
 let selectedPair = null;
+const isMobile = () => window.innerWidth < 640;
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -148,6 +156,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     currentTab = btn.dataset.tab;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    // Scroll tab into view on mobile
+    btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     document.getElementById('view-' + currentTab).classList.remove('hidden');
     renderCurrent();
@@ -171,9 +181,9 @@ const age = h => h < 1 ? Math.round(h*60)+'m' : h.toFixed(1)+'h';
 const scoreBar = s => {
   const w = Math.min(100, Math.round(s));
   const c = s >= 75 ? '#10b981' : s >= 50 ? '#f59e0b' : '#374151';
-  return `<div class="flex items-center gap-2">
-    <div class="score-bar flex-1"><div class="score-fill" style="width:${w}%;background:${c}"></div></div>
-    <span class="text-xs font-mono text-gray-400 w-7 text-right">${s.toFixed(0)}</span>
+  return `<div class="flex items-center gap-1.5">
+    <div class="score-bar flex-1 min-w-0"><div class="score-fill" style="width:${w}%;background:${c}"></div></div>
+    <span class="text-xs font-mono text-gray-400 w-6 text-right flex-shrink-0">${s.toFixed(0)}</span>
   </div>`;
 };
 const catBadge = c => {
@@ -191,107 +201,118 @@ function closeHistory() {
 async function showHistory(pairAddr, symbol) {
   if (selectedPair === pairAddr) { closeHistory(); return; }
   selectedPair = pairAddr;
-
   const data = await api('/api/token/' + pairAddr + '/history');
-  if (!data || data.length < 2) {
-    closeHistory();
-    return;
-  }
+  if (!data || data.length < 2) { closeHistory(); return; }
 
   document.getElementById('history-label').textContent =
     `Score History — ${symbol} (${data.length} snapshots)`;
   const panel = document.getElementById('history-panel');
   panel.classList.add('open');
 
-  // Draw sparkline
   const canvas = document.getElementById('history-chart');
   const ctx = canvas.getContext('2d');
-  canvas.width = canvas.parentElement.clientWidth - 32;
+  canvas.width = canvas.parentElement.clientWidth - 24;
   canvas.height = 100;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const scores = data.map(d => d.score);
   const prices = data.map(d => d.price);
-  const minS = Math.min(...scores), maxS = Math.max(...scores);
-  const rangeS = maxS - minS || 1;
-
   const w = canvas.width, h = canvas.height - 20;
   const step = w / (data.length - 1);
 
-  // Grid lines
-  ctx.strokeStyle = '#1f2937';
-  ctx.lineWidth = 1;
-  [25, 50, 75].forEach(v => {
-    const y = h - ((v - 0) / 100 * h);
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    ctx.fillStyle = '#374151';
-    ctx.font = '9px monospace';
-    ctx.fillText(v, 2, y - 2);
+  ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1;
+  [25,50,75].forEach(v => {
+    const y = h - (v/100*h);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    ctx.fillStyle='#374151'; ctx.font='9px monospace';
+    ctx.fillText(v, 2, y-2);
   });
 
-  // Score line
   ctx.beginPath();
-  data.forEach((d, i) => {
-    const x = i * step;
-    const y = h - ((d.score - 0) / 100 * h);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  data.forEach((d,i) => {
+    const x=i*step, y=h-(d.score/100*h);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
   });
-  ctx.strokeStyle = '#6366f1';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  ctx.strokeStyle='#6366f1'; ctx.lineWidth=2; ctx.stroke();
 
-  // Dots + price labels
-  data.forEach((d, i) => {
-    const x = i * step;
-    const y = h - ((d.score - 0) / 100 * h);
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = d.score >= 75 ? '#10b981' : d.score >= 50 ? '#f59e0b' : '#6b7280';
+  data.forEach((d,i) => {
+    const x=i*step, y=h-(d.score/100*h);
+    ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fillStyle=d.score>=75?'#10b981':d.score>=50?'#f59e0b':'#6b7280';
     ctx.fill();
   });
 
-  // Price line (normalized to canvas height, secondary axis)
-  const minP = Math.min(...prices), maxP = Math.max(...prices), rangeP = maxP - minP || 1;
+  const minP=Math.min(...prices), maxP=Math.max(...prices), rangeP=maxP-minP||1;
   ctx.beginPath();
-  data.forEach((d, i) => {
-    const x = i * step;
-    const y = h - ((d.price - minP) / rangeP * h * 0.8 + h * 0.1);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  data.forEach((d,i) => {
+    const x=i*step, y=h-((d.price-minP)/rangeP*h*.8+h*.1);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
   });
-  ctx.strokeStyle = '#d97706';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  ctx.strokeStyle='#d97706'; ctx.lineWidth=1;
+  ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
 
-  // X-axis timestamps
-  ctx.fillStyle = '#374151';
-  ctx.font = '9px monospace';
-  [0, Math.floor(data.length/2), data.length-1].forEach(i => {
+  ctx.fillStyle='#374151'; ctx.font='9px monospace';
+  [0,Math.floor(data.length/2),data.length-1].forEach(i => {
     if (!data[i]) return;
     const t = new Date(data[i].timestamp).toLocaleTimeString();
-    ctx.fillText(t, i * step, h + 15);
+    ctx.fillText(t, i*step, h+15);
   });
 }
 
-// ── Token table ───────────────────────────────────────────────────────────────
+// ── Token table — desktop table / mobile cards ────────────────────────────────
 function tokenTable(tokens) {
   if (!tokens?.length) return empty('Scanning for tokens on Aerodrome Base...');
+
+  if (isMobile()) {
+    // Card-based layout for mobile
+    const cards = tokens.map(t => {
+      const cls = t.category==='GEM'?'gem':t.category==='STRONG'?'strong':'watchlist';
+      const spike = (t.volumeSpike||0);
+      const spikeTxt = spike>0
+        ? `<span class="${spike>=2?'text-emerald-400':'text-gray-500'}">${spike.toFixed(1)}x</span>`
+        : '<span class="text-gray-700">—</span>';
+      const buyPct = t.buyRatio?(t.buyRatio*100).toFixed(0)+'%':'—';
+      const buyCls = t.buyRatio>=0.65?'text-emerald-400':'text-gray-500';
+      const isSel = selectedPair===t.pairAddress;
+      return `<div class="token-card-row ${cls}${isSel?' bg-indigo-950/30':''}"
+                   onclick="showHistory('${t.pairAddress}','${(t.symbol||'').replace(/'/g,'')}')">
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <span class="font-semibold text-white text-sm">${t.symbol||'?'}</span>
+            <span class="text-xs text-gray-600 ml-1.5">${age(t.pairAgeHours)}</span>
+          </div>
+          <div class="flex gap-1 flex-wrap justify-end">${catBadge(t.category)}${sigBadges(t.signals)}</div>
+        </div>
+        <div class="mb-2">${scoreBar(t.score)}</div>
+        <div class="grid grid-cols-3 gap-x-3 gap-y-1 text-xs">
+          <div><span class="text-gray-600">Price </span><span class="font-mono text-gray-300">${t.price>0?'$'+t.price.toPrecision(4):'—'}</span></div>
+          <div><span class="text-gray-600">Liq </span><span class="text-gray-400">${usd(t.liquidity)}</span></div>
+          <div><span class="text-gray-600">Vol </span><span class="text-gray-400">${usd(t.volume24h)}</span></div>
+          <div><span class="text-gray-600">Spike </span>${spikeTxt}</div>
+          <div><span class="text-gray-600">5m </span>${pct(t.priceChange5m)}</div>
+          <div><span class="text-gray-600">Buy </span><span class="${buyCls}">${buyPct}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="card overflow-hidden">${cards}</div>`;
+  }
+
+  // Full table for desktop
   const rows = tokens.map(t => {
-    const cls = t.category === 'GEM' ? 'gem' : t.category === 'STRONG' ? 'strong' : 'watchlist';
+    const cls = t.category==='GEM'?'gem':t.category==='STRONG'?'strong':'watchlist';
     const spike = (t.volumeSpike||0);
-    const spikeTxt = spike > 0
+    const spikeTxt = spike>0
       ? `<span class="${spike>=2?'text-emerald-400':'text-gray-500'}">${spike.toFixed(1)}x</span>`
       : '<span class="text-gray-700">—</span>';
-    const buyPct = t.buyRatio ? (t.buyRatio*100).toFixed(0)+'%' : '—';
-    const buyCls = t.buyRatio >= 0.65 ? 'text-emerald-400' : 'text-gray-500';
-    const isSel = selectedPair === t.pairAddress;
+    const buyPct = t.buyRatio?(t.buyRatio*100).toFixed(0)+'%':'—';
+    const buyCls = t.buyRatio>=0.65?'text-emerald-400':'text-gray-500';
+    const isSel = selectedPair===t.pairAddress;
     return `<tr class="trow ${cls}${isSel?' bg-indigo-950/30':''}" onclick="showHistory('${t.pairAddress}','${(t.symbol||'').replace(/'/g,'')}')" title="Klik untuk lihat score history">
       <td class="px-4 py-2.5">
         <div class="font-semibold text-white text-sm">${t.symbol||'?'}</div>
         <div class="text-xs text-gray-600">${(t.name||'').slice(0,18)}</div>
       </td>
-      <td class="px-3 py-2.5 w-32">${scoreBar(t.score)}</td>
+      <td class="px-3 py-2.5 w-28">${scoreBar(t.score)}</td>
       <td class="px-3 py-2.5 text-right font-mono text-xs text-gray-400">${t.price>0?'$'+t.price.toPrecision(4):'—'}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-400">${usd(t.liquidity)}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-400">${usd(t.volume24h)}</td>
@@ -306,10 +327,10 @@ function tokenTable(tokens) {
     </tr>`;
   }).join('');
   return `<div class="card overflow-x-auto">
-  <table class="w-full text-sm">
+  <table class="w-full text-sm min-w-max">
     <thead><tr class="text-xs text-gray-700 uppercase tracking-wider border-b border-gray-800">
       <th class="px-4 py-2.5 text-left">Token</th>
-      <th class="px-3 py-2.5 text-left w-32">Score</th>
+      <th class="px-3 py-2.5 text-left w-28">Score</th>
       <th class="px-3 py-2.5 text-right">Price</th>
       <th class="px-3 py-2.5 text-right">Liquidity</th>
       <th class="px-3 py-2.5 text-right">Vol 24h</th>
@@ -328,13 +349,13 @@ function tokenTable(tokens) {
 function renderSignals(sigs) {
   if (!sigs?.length) return empty('No signals detected yet.');
   return `<div class="space-y-2">${sigs.map(s => `
-  <div class="card px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-3">
+  <div class="card px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
       <span class="badge b-${s.type}">${s.type.replace('_',' ')}</span>
-      <span class="font-semibold text-white">${s.symbol}</span>
-      <span class="text-sm text-gray-500">${s.detail}</span>
+      <span class="font-semibold text-white text-sm">${s.symbol}</span>
+      <span class="text-xs text-gray-500">${s.detail}</span>
     </div>
-    <div class="flex items-center gap-4 text-xs text-gray-600">
+    <div class="flex items-center gap-3 text-xs text-gray-600">
       <span class="text-indigo-400 font-mono">score ${s.score.toFixed(1)}</span>
       <span>${new Date(s.timestamp).toLocaleTimeString()}</span>
     </div>
@@ -345,41 +366,40 @@ function renderSignals(sigs) {
 function renderPositions(positions) {
   if (!positions?.length) return empty('No open or recent positions. Engine is scanning for entry signals...');
   return `<div class="space-y-3">${positions.map(p => {
-    const open = p.status === 'OPEN';
+    const open = p.status==='OPEN';
     const pc = p.pnlPercent;
-    const pcCls = pc >= 0 ? 'text-emerald-400' : 'text-red-400';
-    const borderCls = open ? 'pos-open' : (pc >= 0 ? 'pos-win' : 'pos-loss');
-    const holdMin = open ? Math.round((Date.now() - new Date(p.entryTime)) / 60000) : null;
-    const hwm = p.highWaterMark > p.entryPrice
-      ? `<span class="badge b-MOMENTUM" title="High Water Mark">HWM $${p.highWaterMark.toPrecision(4)}</span>`
-      : '';
-    const gasInfo = p.gasCostUSD > 0 ? `gas $${p.gasCostUSD.toFixed(4)}` : '';
-    return `<div class="card ${borderCls} p-4">
-      <div class="flex items-center justify-between mb-3">
+    const pcCls = pc>=0?'text-emerald-400':'text-red-400';
+    const borderCls = open?'pos-open':(pc>=0?'pos-win':'pos-loss');
+    const holdMin = open?Math.round((Date.now()-new Date(p.entryTime))/60000):null;
+    const hwm = p.highWaterMark>p.entryPrice
+      ?`<span class="badge b-MOMENTUM" title="High Water Mark">HWM $${p.highWaterMark.toPrecision(4)}</span>`:'';
+    const gasInfo = p.gasCostUSD>0?`gas $${p.gasCostUSD.toFixed(4)}`:'';
+    return `<div class="card ${borderCls} p-3 sm:p-4">
+      <div class="flex items-start justify-between mb-3 gap-2">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="font-bold text-white text-base">${p.symbol}</span>
           ${open
-            ? `<span class="badge b-sig">OPEN · ${holdMin}m</span>`
-            : `<span class="badge b-watch">CLOSED</span>`}
-          ${p.tp1Hit ? '<span class="badge" style="background:#78350f;color:#fde68a">TP1 ✓</span>' : ''}
+            ?`<span class="badge b-sig">OPEN · ${holdMin}m</span>`
+            :`<span class="badge b-watch">CLOSED</span>`}
+          ${p.tp1Hit?'<span class="badge" style="background:#78350f;color:#fde68a">TP1 ✓</span>':''}
           ${hwm}
         </div>
-        <div class="text-right">
+        <div class="text-right flex-shrink-0">
           <div class="text-lg font-bold ${pcCls}">${pc>=0?'+':''}${pc.toFixed(2)}%</div>
-          <div class="text-xs text-gray-600">${p.remainingPct.toFixed(0)}% remaining · ${gasInfo}</div>
+          <div class="text-xs text-gray-600">${p.remainingPct.toFixed(0)}% rem ${gasInfo?'· '+gasInfo:''}</div>
         </div>
       </div>
-      <div class="grid grid-cols-4 gap-4 text-xs">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <div><div class="text-gray-600 mb-0.5">Entry</div><div class="font-mono text-gray-300">$${p.entryPrice.toPrecision(4)}</div></div>
         <div><div class="text-gray-600 mb-0.5">Current</div><div class="font-mono ${pcCls}">$${(p.currentPrice||p.entryPrice).toPrecision(4)}</div></div>
         <div><div class="text-gray-600 mb-0.5">Size</div><div class="text-gray-300">$${p.sizeUSD.toFixed(2)}</div></div>
         <div><div class="text-gray-600 mb-0.5">Pair</div><div class="text-gray-600 font-mono truncate">${p.pairAddress.slice(0,10)}…</div></div>
       </div>
-      ${p.exitReason ? `<div class="mt-2 text-xs text-gray-600">Exit: ${p.exitReason}</div>` : ''}
-      ${p.fills?.length > 1 ? `
+      ${p.exitReason?`<div class="mt-2 text-xs text-gray-600">Exit: ${p.exitReason}</div>`:''}
+      ${p.fills?.length>1?`
       <div class="mt-3 pt-2 border-t border-gray-800 flex flex-wrap gap-1.5">
-        ${p.fills.map(f => `<span class="badge ${f.action==='BUY'?'b-gem':'b-MOMENTUM'}">${f.action} ${f.pctOfPos.toFixed(0)}% @ $${f.price.toPrecision(4)}</span>`).join('')}
-      </div>` : ''}
+        ${p.fills.map(f=>`<span class="badge ${f.action==='BUY'?'b-gem':'b-MOMENTUM'}">${f.action} ${f.pctOfPos.toFixed(0)}% @ $${f.price.toPrecision(4)}</span>`).join('')}
+      </div>`:''}
     </div>`;
   }).join('')}</div>`;
 }
@@ -387,12 +407,37 @@ function renderPositions(positions) {
 // ── Trade Log ─────────────────────────────────────────────────────────────────
 function renderTrades(trades) {
   if (!trades?.length) return empty('No completed trades yet.');
+
+  if (isMobile()) {
+    const cards = trades.map(t => {
+      const win = t.pnlPercent>=0;
+      const border = win?'pos-win':'pos-loss';
+      const pcCls = win?'text-emerald-400':'text-red-400';
+      const netPnl = t.netPnLUSD||0;
+      const netCls = netPnl>=0?'text-emerald-400':'text-red-400';
+      return `<div class="token-card-row ${border}">
+        <div class="flex justify-between items-start mb-2">
+          <span class="font-semibold text-white text-sm">${t.symbol}</span>
+          <span class="font-bold text-sm ${pcCls}">${win?'+':''}${t.pnlPercent.toFixed(2)}%</span>
+        </div>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div><span class="text-gray-600">Entry </span><span class="font-mono text-gray-400">$${t.entryPrice.toPrecision(4)}</span></div>
+          <div><span class="text-gray-600">Exit </span><span class="font-mono text-gray-400">$${t.exitPrice.toPrecision(4)}</span></div>
+          <div><span class="text-gray-600">Net P&L </span><span class="font-bold ${netCls}">${netPnl>=0?'+':''}$${netPnl.toFixed(4)}</span></div>
+          <div><span class="text-gray-600">Dur </span><span class="text-gray-500">${t.duration}</span></div>
+        </div>
+        <div class="text-xs text-gray-600 mt-1 truncate">${t.exitReason}</div>
+      </div>`;
+    }).join('');
+    return `<div class="card overflow-hidden">${cards}</div>`;
+  }
+
   const rows = trades.map(t => {
-    const win = t.pnlPercent >= 0;
-    const border = win ? 'pos-win' : 'pos-loss';
-    const pcCls = win ? 'text-emerald-400' : 'text-red-400';
-    const netPnl = t.netPnLUSD || 0;
-    const netCls = netPnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+    const win = t.pnlPercent>=0;
+    const border = win?'pos-win':'pos-loss';
+    const pcCls = win?'text-emerald-400':'text-red-400';
+    const netPnl = t.netPnLUSD||0;
+    const netCls = netPnl>=0?'text-emerald-400':'text-red-400';
     return `<tr class="trow ${border}">
       <td class="px-4 py-2.5 font-semibold text-white text-sm">${t.symbol}</td>
       <td class="px-3 py-2.5 text-right font-mono text-xs text-gray-400">$${t.entryPrice.toPrecision(4)}</td>
@@ -404,11 +449,11 @@ function renderTrades(trades) {
       <td class="px-3 py-2.5 text-right text-xs font-bold ${netCls}">${netPnl>=0?'+':''}$${netPnl.toFixed(4)}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-600">${t.duration}</td>
       <td class="px-3 py-2.5 text-xs text-gray-600 max-w-xs truncate">${t.exitReason}</td>
-      <td class="px-3 py-2.5 text-xs font-mono text-gray-700">${t.buyTxHash ? t.buyTxHash.slice(0,10)+'…' : '—'}</td>
+      <td class="px-3 py-2.5 text-xs font-mono text-gray-700">${t.buyTxHash?t.buyTxHash.slice(0,10)+'…':'—'}</td>
     </tr>`;
   }).join('');
   return `<div class="card overflow-x-auto">
-  <table class="w-full text-sm">
+  <table class="w-full text-sm min-w-max">
     <thead><tr class="text-xs text-gray-700 uppercase tracking-wider border-b border-gray-800">
       <th class="px-4 py-2.5 text-left">Token</th>
       <th class="px-3 py-2.5 text-right">Entry</th>
@@ -429,10 +474,10 @@ function renderTrades(trades) {
 // ── Rug Patterns ──────────────────────────────────────────────────────────────
 function renderRugPatterns(patterns) {
   const rugCount = document.getElementById('rug-count');
-  if (rugCount) rugCount.textContent = patterns?.length ? `(${patterns.length})` : '';
+  if (rugCount) rugCount.textContent = patterns?.length?`(${patterns.length})`:'';
 
   if (!patterns?.length) return `<div class="space-y-4">
-    <div class="card p-16 text-center">
+    <div class="card p-10 sm:p-16 text-center">
       <div class="text-4xl mb-3">🛡️</div>
       <div class="text-gray-400 text-sm font-semibold mb-1">Belum ada rug pattern tersimpan</div>
       <div class="text-gray-700 text-xs">Pattern akan otomatis dicatat saat ada posisi yang kena Stop Loss atau Emergency Exit</div>
@@ -441,19 +486,19 @@ function renderRugPatterns(patterns) {
 
   const rows = patterns.map((p, i) => {
     const recAt  = new Date(p.recordedAt);
-    const ageMin = p.ageMinutes > 0 ? p.ageMinutes.toFixed(0) + 'm' : '—';
-    const buyR   = p.buyRatioEntry > 0 ? (p.buyRatioEntry * 100).toFixed(0) + '%' : '—';
-    const buyCls = p.buyRatioEntry >= 0.65 ? 'text-emerald-400' : 'text-red-400';
-    const pump   = p.pricePump5m != null ? `<span class="${p.pricePump5m>=0?'text-emerald-400':'text-red-400'}">${p.pricePump5m>=0?'+':''}${p.pricePump5m.toFixed(1)}%</span>` : '—';
-    const liq    = p.liquidityUsd > 0 ? usd(p.liquidityUsd) : '—';
-    const reason = p.exitReason || '—';
-    const reasonCls = reason.includes('STOP LOSS') ? 'text-red-400' : reason.includes('EMERGENCY') ? 'text-orange-400' : 'text-gray-500';
-    const minsAgo = Math.round((Date.now() - recAt) / 60000);
-    const timeAgo = minsAgo < 60 ? minsAgo + 'm lalu' : (minsAgo/60).toFixed(1) + 'j lalu';
+    const ageMin = p.ageMinutes>0?p.ageMinutes.toFixed(0)+'m':'—';
+    const buyR   = p.buyRatioEntry>0?(p.buyRatioEntry*100).toFixed(0)+'%':'—';
+    const buyCls = p.buyRatioEntry>=0.65?'text-emerald-400':'text-red-400';
+    const pump   = p.pricePump5m!=null?`<span class="${p.pricePump5m>=0?'text-emerald-400':'text-red-400'}">${p.pricePump5m>=0?'+':''}${p.pricePump5m.toFixed(1)}%</span>`:'—';
+    const liq    = p.liquidityUsd>0?usd(p.liquidityUsd):'—';
+    const reason = p.exitReason||'—';
+    const reasonCls = reason.includes('STOP LOSS')?'text-red-400':reason.includes('EMERGENCY')?'text-orange-400':'text-gray-500';
+    const minsAgo = Math.round((Date.now()-recAt)/60000);
+    const timeAgo = minsAgo<60?minsAgo+'m lalu':(minsAgo/60).toFixed(1)+'j lalu';
     return `<tr class="trow pos-loss">
       <td class="px-3 py-2 text-xs text-gray-600 text-right w-8">${i+1}</td>
       <td class="px-4 py-2.5 font-semibold text-white text-sm">${p.symbol}</td>
-      <td class="px-3 py-2.5 text-xs text-gray-600 font-mono">${p.pairAddress ? p.pairAddress.slice(0,12)+'…' : '—'}</td>
+      <td class="px-3 py-2.5 text-xs text-gray-600 font-mono">${p.pairAddress?p.pairAddress.slice(0,10)+'…':'—'}</td>
       <td class="px-3 py-2.5 text-xs text-amber-400 font-mono">${ageMin}</td>
       <td class="px-3 py-2.5 text-xs font-mono"><span class="${buyCls}">${buyR}</span></td>
       <td class="px-3 py-2.5 text-xs">${pump}</td>
@@ -464,41 +509,35 @@ function renderRugPatterns(patterns) {
   }).join('');
 
   const totalPatterns = patterns.length;
-  const slCount       = patterns.filter(p => p.exitReason?.includes('STOP LOSS')).length;
-  const emgCount      = patterns.filter(p => p.exitReason?.includes('EMERGENCY')).length;
+  const slCount  = patterns.filter(p=>p.exitReason?.includes('STOP LOSS')).length;
+  const emgCount = patterns.filter(p=>p.exitReason?.includes('EMERGENCY')).length;
 
   return `<div class="space-y-3">
-    <!-- Summary cards -->
-    <div class="grid grid-cols-3 gap-3">
-      <div class="card p-4 text-center">
-        <div class="text-2xl font-bold text-red-400">${totalPatterns}</div>
-        <div class="text-xs text-gray-600 mt-0.5">Total Pattern</div>
+    <div class="grid grid-cols-3 gap-2 sm:gap-3">
+      <div class="card p-3 sm:p-4 text-center">
+        <div class="text-xl sm:text-2xl font-bold text-red-400">${totalPatterns}</div>
+        <div class="text-xs text-gray-600 mt-0.5">Total</div>
       </div>
-      <div class="card p-4 text-center">
-        <div class="text-2xl font-bold text-red-400">${slCount}</div>
+      <div class="card p-3 sm:p-4 text-center">
+        <div class="text-xl sm:text-2xl font-bold text-red-400">${slCount}</div>
         <div class="text-xs text-gray-600 mt-0.5">Stop Loss</div>
       </div>
-      <div class="card p-4 text-center">
-        <div class="text-2xl font-bold text-orange-400">${emgCount}</div>
-        <div class="text-xs text-gray-600 mt-0.5">Emergency Exit</div>
+      <div class="card p-3 sm:p-4 text-center">
+        <div class="text-xl sm:text-2xl font-bold text-orange-400">${emgCount}</div>
+        <div class="text-xs text-gray-600 mt-0.5">Emergency</div>
       </div>
     </div>
-
-    <!-- Info bar -->
-    <div class="card px-4 py-3 flex items-center gap-3 text-xs text-gray-600">
-      <span class="text-red-400 text-base">⚠️</span>
-      <span>Pattern dicocokkan dengan token baru berdasarkan <strong class="text-gray-400">umur ± 15m</strong>, <strong class="text-gray-400">buy ratio ± 10%</strong>, <strong class="text-gray-400">pump 5m ± 15%</strong>, dan <strong class="text-gray-400">likuiditas 3x</strong>.
-      Jika ≥ 3 pattern historis cocok di ≥ 3 dimensi, entry diblokir otomatis.</span>
+    <div class="card px-3 sm:px-4 py-3 flex items-start gap-3 text-xs text-gray-600">
+      <span class="text-red-400 text-base flex-shrink-0">⚠️</span>
+      <span>Pattern dicocokkan dengan token baru berdasarkan <strong class="text-gray-400">umur ± 15m</strong>, <strong class="text-gray-400">buy ratio ± 10%</strong>, <strong class="text-gray-400">pump 5m ± 15%</strong>, dan <strong class="text-gray-400">likuiditas 3x</strong>. Jika ≥ 3 pattern cocok di ≥ 3 dimensi, entry diblokir otomatis.</span>
     </div>
-
-    <!-- Pattern table -->
     <div class="card overflow-x-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm min-w-max">
         <thead><tr class="text-xs text-gray-700 uppercase tracking-wider border-b border-gray-800">
           <th class="px-3 py-2.5 text-right w-8">#</th>
           <th class="px-4 py-2.5 text-left">Token</th>
           <th class="px-3 py-2.5 text-left">Pair</th>
-          <th class="px-3 py-2.5 text-right">Age saat Entry</th>
+          <th class="px-3 py-2.5 text-right">Age Entry</th>
           <th class="px-3 py-2.5 text-right">Buy Ratio</th>
           <th class="px-3 py-2.5 text-right">Pump 5m</th>
           <th class="px-3 py-2.5 text-right">Likuiditas</th>
@@ -514,8 +553,29 @@ function renderRugPatterns(patterns) {
 // ── Blacklist ─────────────────────────────────────────────────────────────────
 function renderBlacklist(entries) {
   if (!entries?.length) return empty('Tidak ada token yang diblokir saat ini.');
+
+  if (isMobile()) {
+    const cards = entries.map(e => {
+      const remaining = Math.max(0, Math.round((new Date(e.expireAt)-Date.now())/60000));
+      return `<div class="token-card-row pos-loss">
+        <div class="flex justify-between items-start mb-1.5">
+          <span class="font-semibold text-white text-sm">${e.symbol}</span>
+          <span class="text-xs text-amber-400">${remaining}m tersisa</span>
+        </div>
+        <div class="text-xs text-red-400 mb-0.5">${e.slCount}x stop loss</div>
+        <div class="text-xs text-gray-500 truncate">${e.reason}</div>
+      </div>`;
+    }).join('');
+    return `<div class="card overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-gray-800 text-xs text-gray-600">
+        Token diblokir setelah ${2}x stop loss dalam 24 jam · Blokir 6 jam
+      </div>
+      ${cards}
+    </div>`;
+  }
+
   const rows = entries.map(e => {
-    const remaining = Math.max(0, Math.round((new Date(e.expireAt) - Date.now()) / 60000));
+    const remaining = Math.max(0, Math.round((new Date(e.expireAt)-Date.now())/60000));
     return `<tr class="trow pos-loss">
       <td class="px-4 py-2.5 font-semibold text-white text-sm">${e.symbol}</td>
       <td class="px-3 py-2.5 text-xs text-gray-500 font-mono">${e.pairAddress.slice(0,14)}…</td>
@@ -529,7 +589,7 @@ function renderBlacklist(entries) {
   <div class="px-4 py-2.5 border-b border-gray-800 text-xs text-gray-600">
     Token diblokir sementara setelah ${2} kali stop loss dalam 24 jam. Blokir berlaku selama 6 jam.
   </div>
-  <table class="w-full text-sm">
+  <table class="w-full text-sm min-w-max">
     <thead><tr class="text-xs text-gray-700 uppercase tracking-wider border-b border-gray-800">
       <th class="px-4 py-2.5 text-left">Token</th>
       <th class="px-3 py-2.5 text-left">Pair</th>
@@ -543,7 +603,7 @@ function renderBlacklist(entries) {
 }
 
 const empty = msg =>
-  `<div class="card p-16 text-center text-gray-700 text-sm">${msg}</div>`;
+  `<div class="card p-10 sm:p-16 text-center text-gray-700 text-sm">${msg}</div>`;
 
 // ── Data fetcher ──────────────────────────────────────────────────────────────
 const api = async path => {
@@ -556,72 +616,76 @@ async function poll() {
     api('/api/stats'), api('/api/trading-stats'), api('/api/rug-patterns')
   ]);
 
-  // Update rug-count badge di tab label
   const rugCountEl = document.getElementById('rug-count');
-  if (rugCountEl) rugCountEl.textContent = rugData?.length ? `(${rugData.length})` : '';
+  if (rugCountEl) rugCountEl.textContent = rugData?.length?`(${rugData.length})`:'';
 
   if (stats) {
-    document.getElementById('s-tracked').textContent = stats.totalTracked ?? '—';
-    document.getElementById('s-gems').textContent    = stats.totalGems    ?? '—';
-    document.getElementById('s-signals').textContent = stats.totalSignals ?? '—';
-    document.getElementById('s-cycle').textContent   = stats.cycleCount   ?? '—';
+    document.getElementById('s-tracked').textContent = stats.totalTracked??'—';
+    document.getElementById('s-gems').textContent    = stats.totalGems??'—';
+    document.getElementById('s-signals').textContent = stats.totalSignals??'—';
+    document.getElementById('s-cycle').textContent   = stats.cycleCount??'—';
     document.getElementById('hdr-info').textContent  =
       `uptime ${stats.uptime}  ·  cycles ${stats.cycleCount}  ·  poll ${stats.pollInterval}`;
   }
   if (tStats) {
-    document.getElementById('s-open').textContent = `${tStats.openTrades}/${tStats.maxTrades}`;
-    document.getElementById('s-trades').textContent = tStats.totalTrades ?? '—';
+    document.getElementById('s-open').textContent   = `${tStats.openTrades}/${tStats.maxTrades}`;
+    document.getElementById('s-trades').textContent = tStats.totalTrades??'—';
 
     const wr = document.getElementById('s-winrate');
-    wr.textContent = tStats.totalTrades > 0 ? tStats.winRate.toFixed(0)+'%' : '—';
-    wr.className = 'text-xl font-bold ' + (tStats.winRate >= 50 ? 'text-emerald-400' : 'text-red-400');
+    wr.textContent = tStats.totalTrades>0?tStats.winRate.toFixed(0)+'%':'—';
+    wr.className = 'text-lg sm:text-xl font-bold '+(tStats.winRate>=50?'text-emerald-400':'text-red-400');
 
     const pnl = document.getElementById('s-pnl');
-    const pv = tStats.totalPnLUSD || 0;
-    pnl.textContent = tStats.totalTrades > 0 ? (pv>=0?'+':'')+'$'+pv.toFixed(4) : '—';
-    pnl.className = 'text-xl font-bold ' + (pv >= 0 ? 'text-emerald-400' : 'text-red-400');
+    const pv = tStats.totalPnLUSD||0;
+    pnl.textContent = tStats.totalTrades>0?(pv>=0?'+':'')+'$'+pv.toFixed(4):'—';
+    pnl.className = 'text-lg sm:text-xl font-bold '+(pv>=0?'text-emerald-400':'text-red-400');
 
     const netEl = document.getElementById('s-netpnl');
-    const nv = tStats.netPnLUSD || 0;
-    netEl.textContent = tStats.totalTrades > 0 ? (nv>=0?'+':'')+'$'+nv.toFixed(4) : '—';
-    netEl.className = 'text-xl font-bold ' + (nv >= 0 ? 'text-emerald-400' : 'text-red-400');
+    const nv = tStats.netPnLUSD||0;
+    netEl.textContent = tStats.totalTrades>0?(nv>=0?'+':'')+'$'+nv.toFixed(4):'—';
+    netEl.className = 'text-lg sm:text-xl font-bold '+(nv>=0?'text-emerald-400':'text-red-400');
 
-    // Risk level badge
-    const risk = tStats.riskLevel || 'normal';
+    const risk = tStats.riskLevel||'normal';
     const rb = document.getElementById('risk-badge');
     rb.textContent = risk.toUpperCase();
     rb.className = `badge b-risk-${risk}`;
     rb.classList.remove('hidden');
   }
   document.getElementById('hdr-time').textContent = new Date().toLocaleTimeString();
-
   await renderCurrent();
 }
 
 async function renderCurrent() {
   const tab = currentTab;
   let data;
-  if (tab === 'all')         data = await api('/api/tokens');
-  else if (tab === 'gems')   data = await api('/api/gems');
-  else if (tab === 'signals')    data = await api('/api/signals');
-  else if (tab === 'positions')  data = await api('/api/positions');
-  else if (tab === 'trades')     data = await api('/api/trades');
-  else if (tab === 'movers')     data = await api('/api/movers');
-  else if (tab === 'hot')        data = await api('/api/hot');
-  else if (tab === 'blacklist')    data = await api('/api/blacklist');
-  else if (tab === 'rugpatterns') data = await api('/api/rug-patterns');
+  if (tab==='all')          data = await api('/api/tokens');
+  else if (tab==='gems')    data = await api('/api/gems');
+  else if (tab==='signals') data = await api('/api/signals');
+  else if (tab==='positions') data = await api('/api/positions');
+  else if (tab==='trades')  data = await api('/api/trades');
+  else if (tab==='movers')  data = await api('/api/movers');
+  else if (tab==='hot')     data = await api('/api/hot');
+  else if (tab==='blacklist')    data = await api('/api/blacklist');
+  else if (tab==='rugpatterns') data = await api('/api/rug-patterns');
 
-  const el = document.getElementById('view-' + tab);
-  if (tab === 'signals')           el.innerHTML = renderSignals(data);
-  else if (tab === 'positions')    el.innerHTML = renderPositions(data);
-  else if (tab === 'trades')       el.innerHTML = renderTrades(data);
-  else if (tab === 'blacklist')    el.innerHTML = renderBlacklist(data);
-  else if (tab === 'rugpatterns') el.innerHTML = renderRugPatterns(data);
-  else                             el.innerHTML = tokenTable(data);
+  const el = document.getElementById('view-'+tab);
+  if (tab==='signals')          el.innerHTML = renderSignals(data);
+  else if (tab==='positions')   el.innerHTML = renderPositions(data);
+  else if (tab==='trades')      el.innerHTML = renderTrades(data);
+  else if (tab==='blacklist')   el.innerHTML = renderBlacklist(data);
+  else if (tab==='rugpatterns') el.innerHTML = renderRugPatterns(data);
+  else                          el.innerHTML = tokenTable(data);
 }
 
 poll();
 setInterval(poll, 4000);
+
+// Re-render on resize so mobile/desktop layout switches correctly
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderCurrent, 200);
+});
 </script>
 </body>
 </html>
