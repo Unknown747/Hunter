@@ -149,16 +149,19 @@ func NewLiveExecutor() (*LiveExecutor, error) {
                 return nil, fmt.Errorf("ERC20 ABI: %w", err)
         }
 
-        // ── MEV Protection via Flashbots Protect (Base mainnet) ─────────────────
+        // ── MEV Protection ────────────────────────────────────────────────────────
+        // Base (chain 8453) menggunakan sequencer terpusat Coinbase — tidak ada
+        // public mempool, sehingga sandwich attack inherently sulit dilakukan.
+        // Flashbots hanya mendukung Ethereum mainnet (chain 1), jadi kita skip
+        // kecuali user secara eksplisit menyediakan MEV_PROTECT_RPC custom.
         mevURL := os.Getenv("MEV_PROTECT_RPC")
-        if mevURL == "" {
-                mevURL = "https://rpc.flashbots.net/fast" // Flashbots Protect — mendukung Base chain 8453
-        }
         var mevClient *ethclient.Client
-        if mc, err := ethclient.Dial(mevURL); err == nil {
-                mevClient = mc
-        } else {
-                logger.Printf("[executor] ⚠️  MEV RPC tidak tersedia (%v) — pakai regular RPC", err)
+        if mevURL != "" {
+                if mc, err := ethclient.Dial(mevURL); err == nil {
+                        mevClient = mc
+                } else {
+                        logger.Printf("[executor] ⚠️  MEV RPC tidak tersedia (%v) — pakai regular RPC", err)
+                }
         }
 
         ethAmt := new(big.Float).Quo(new(big.Float).SetInt(sizeWei), new(big.Float).SetInt(weiPerETH))
@@ -166,7 +169,7 @@ func NewLiveExecutor() (*LiveExecutor, error) {
         if backupURL != "" {
                 backupInfo = "  backup=" + backupURL
         }
-        mevInfo := " (no MEV protect)"
+        mevInfo := "  mev=sequencer-protected" // Base sequencer sudah melindungi dari MEV
         if mevClient != nil {
                 mevInfo = "  mev=" + mevURL
         }

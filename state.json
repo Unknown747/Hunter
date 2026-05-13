@@ -1,5 +1,39 @@
 {
   "positions": {
+    "0ed76ebf": {
+      "id": "0ed76ebf",
+      "pairAddress": "0x6b0f53cbd9272d8117e9535fe25371dedf39a1be",
+      "tokenAddress": "0xbf927b841994731c573bdf09ceb0c6b0aa887cdd",
+      "symbol": "VELVET",
+      "entryPrice": 0.1173,
+      "entryVolume": 278231.42,
+      "currentPrice": 0.1176,
+      "sizeUSD": 1,
+      "remainingPct": 100,
+      "entryTime": "2026-05-13T13:53:18.780982881Z",
+      "status": "OPEN",
+      "pnlPercent": 0.2557544757033181,
+      "realizedUSD": 0,
+      "tp1Hit": false,
+      "highWaterMark": 0.1176,
+      "gasCostUSD": 0.0065723911504979035,
+      "fills": [
+        {
+          "action": "BUY",
+          "price": 0.1173,
+          "pctOfPos": 100,
+          "usd": 0.2256636682,
+          "pnlPct": 0,
+          "gasUSD": 0.0065723911504979035,
+          "reason": "entry",
+          "txHash": "0x529e97b6a988c5f1b39c4b73ae641ed48d37432a59c7fa34ba86cfe722ac7730",
+          "timestamp": "2026-05-13T13:53:18.780978201Z"
+        }
+      ],
+      "entryAgeMinutes": 0,
+      "entryBuyRatio": 0.5151036178433439,
+      "entryPricePump5m": 0.16
+    },
     "2efa18dc": {
       "id": "2efa18dc",
       "pairAddress": "0x6b0f53cbd9272d8117e9535fe25371dedf39a1be",
@@ -33,6 +67,86 @@
       "entryAgeMinutes": 0,
       "entryBuyRatio": 0,
       "entryPricePump5m": 0
+    },
+    "57f4a6cb": {
+      "id": "57f4a6cb",
+      "pairAddress": "0x1131db5977242a03ebead1acd18f80a9a29e5922",
+      "tokenAddress": "0x311935cd80b76769bf2ecc9d8ab7635b2139cf82",
+      "symbol": "SOL",
+      "entryPrice": 92.11,
+      "entryVolume": 5475922.54,
+      "currentPrice": 92.33,
+      "sizeUSD": 1,
+      "remainingPct": 100,
+      "entryTime": "2026-05-13T13:53:03.446037459Z",
+      "status": "OPEN",
+      "pnlPercent": 0.23884485940723899,
+      "realizedUSD": 0,
+      "tp1Hit": false,
+      "highWaterMark": 92.33,
+      "gasCostUSD": 0.0067155991196469695,
+      "fills": [
+        {
+          "action": "BUY",
+          "price": 92.11,
+          "pctOfPos": 100,
+          "usd": 0.2256636682,
+          "pnlPct": 0,
+          "gasUSD": 0.0067155991196469695,
+          "reason": "entry",
+          "txHash": "0x380cd4588187503336d7b8ecf43a086118119be9339b69e87b03d95f6ff6432a",
+          "timestamp": "2026-05-13T13:53:03.446033329Z"
+        }
+      ],
+      "entryAgeMinutes": 0,
+      "entryBuyRatio": 0.5037048969072165,
+      "entryPricePump5m": 0.05
+    },
+    "b6a27cf4": {
+      "id": "b6a27cf4",
+      "pairAddress": "0x37e1490f7f6f98d263f826e1244c7e7f128632f2",
+      "tokenAddress": "0x5b2193fdc451c1f847be09ca9d13a4bf60f8c86b",
+      "symbol": "UP",
+      "entryPrice": 0.2514,
+      "entryVolume": 4054916.44,
+      "currentPrice": 0.2514,
+      "sizeUSD": 1,
+      "remainingPct": 0,
+      "entryTime": "2026-05-13T13:54:18.684159406Z",
+      "status": "CLOSED",
+      "pnlPercent": 0,
+      "realizedUSD": 0,
+      "exitReason": "🚨 EMERGENCY: buyRatio 0.41 collapse",
+      "tp1Hit": false,
+      "highWaterMark": 0.2514,
+      "gasCostUSD": 0.012574108978129057,
+      "fills": [
+        {
+          "action": "BUY",
+          "price": 0.2514,
+          "pctOfPos": 100,
+          "usd": 0.22566362510000001,
+          "pnlPct": 0,
+          "gasUSD": 0.006546393445610952,
+          "reason": "entry",
+          "txHash": "0xdd5e4a8b5a48ba67c2e3099eacbeb53128fcddfcaab984fef996e87320466afc",
+          "timestamp": "2026-05-13T13:54:18.684154206Z"
+        },
+        {
+          "action": "SELL",
+          "price": 0.2514,
+          "pctOfPos": 100,
+          "usd": 1,
+          "pnlPct": 0,
+          "gasUSD": 0.0060277155325181055,
+          "reason": "🚨 EMERGENCY: buyRatio 0.41 collapse",
+          "txHash": "0x8a55e4f54f3a1b86daa48fcdd1fac1e87f78687d168219fbbfa58153c9fd8781",
+          "timestamp": "2026-05-13T13:54:29.849794506Z"
+        }
+      ],
+      "entryAgeMinutes": 0,
+      "entryBuyRatio": 0.4116229244777718,
+      "entryPricePump5m": 4.06
     },
     "bd6c3727": {
       "id": "bd6c3727",
@@ -83,6 +197,24 @@
   },
   "trades": [
     {
+      "id": "b6a27cf4",
+      "pairAddress": "0x37e1490f7f6f98d263f826e1244c7e7f128632f2",
+      "symbol": "UP",
+      "entryPrice": 0.2514,
+      "exitPrice": 0.2514,
+      "sizeUSD": 1,
+      "pnlPercent": 0,
+      "pnlUSD": 0,
+      "gasCostUSD": 0.012574108978129057,
+      "netPnLUSD": -0.012574108978129057,
+      "duration": "11s",
+      "exitReason": "🚨 EMERGENCY: buyRatio 0.41 collapse",
+      "buyTxHash": "0xdd5e4a8b5a48ba67c2e3099eacbeb53128fcddfcaab984fef996e87320466afc",
+      "sellTxHash": "0x8a55e4f54f3a1b86daa48fcdd1fac1e87f78687d168219fbbfa58153c9fd8781",
+      "openTime": "2026-05-13T13:54:18.684159406Z",
+      "closeTime": "2026-05-13T13:54:29.849810126Z"
+    },
+    {
       "id": "2efa18dc",
       "pairAddress": "0x6b0f53cbd9272d8117e9535fe25371dedf39a1be",
       "symbol": "VELVET",
@@ -119,5 +251,17 @@
     }
   ],
   "blacklist": {},
-  "savedAt": "2026-05-13T13:49:55.034744379Z"
+  "rugPatterns": [
+    {
+      "pairAddress": "0x37e1490f7f6f98d263f826e1244c7e7f128632f2",
+      "symbol": "UP",
+      "ageMinutes": 0,
+      "buyRatioEntry": 0.4116229244777718,
+      "pricePump5m": 4.06,
+      "liquidityUsd": 1691145.78,
+      "exitReason": "🚨 EMERGENCY: buyRatio 0.41 collapse",
+      "recordedAt": "2026-05-13T13:54:29.849796466Z"
+    }
+  ],
+  "savedAt": "2026-05-13T13:54:56.949214614Z"
 }
