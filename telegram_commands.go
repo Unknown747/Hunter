@@ -178,6 +178,8 @@ func (tg *TelegramNotifier) handleCommand(msg *tgMessage, pm *PositionManager, c
                 tg.cmdPause(pm)
         case "/resume":
                 tg.cmdResume(pm)
+        case "/alert", "/a":
+                tg.cmdAlert(parts[1:])
         default:
                 tg.send(fmt.Sprintf("❓ Perintah tidak dikenal: <code>%s</code>\nKetik /help untuk bantuan.", cmd))
         }
@@ -227,6 +229,14 @@ func (tg *TelegramNotifier) cmdHelp() {
                         "  /closeall — tutup semua posisi (ada konfirmasi)\n" +
                         "  /pause    — jeda entry baru (exit tetap jalan)\n" +
                         "  /resume   — aktifkan entry kembali\n\n" +
+                        "<b>🔔 Filter Alert Sinyal</b>\n" +
+                        "  /alert            — lihat filter aktif\n" +
+                        "  /alert score 80   — hanya notif score ≥ 80\n" +
+                        "  /alert liq 20000  — hanya notif liq ≥ $20k\n" +
+                        "  /alert pump 40    — hanya notif pump5m ≤ 40%\n" +
+                        "  /alert signal EARLY_GEM  — toggle sinyal on/off\n" +
+                        "  /alert signal all|none   — aktifkan/nonaktifkan semua\n" +
+                        "  /alert reset      — reset semua filter ke default\n\n" +
                         "<b>🔔 Notifikasi otomatis</b>\n" +
                         "  🟢 MASUK posisi baru\n" +
                         "  ✂️ TP1 terkena (jual 50%)\n" +
@@ -455,6 +465,208 @@ func (tg *TelegramNotifier) cmdResume(pm *PositionManager) {
         }
         pm.Resume()
         tg.send("▶️ <b>Entry diaktifkan kembali.</b>\nEngine kembali mencari posisi baru.")
+}
+
+// cmdAlert mengatur filter threshold untuk notifikasi sinyal.
+//
+// Contoh:
+//
+//      /alert              — tampilkan pengaturan saat ini
+//      /alert score 80     — hanya notif jika score ≥ 80
+//      /alert liq 20000    — hanya notif jika liq ≥ $20k
+//      /alert pump 40      — hanya notif jika pump5m ≤ 40%
+//      /alert signal EARLY_GEM — toggle jenis sinyal on/off
+//      /alert signal all   — aktifkan semua jenis sinyal
+//      /alert signal none  — nonaktifkan semua sinyal
+//      /alert reset        — reset semua ke default (tanpa filter)
+func (tg *TelegramNotifier) cmdAlert(args []string) {
+        if len(args) == 0 {
+                tg.alertShow()
+                return
+        }
+
+        sub := strings.ToLower(args[0])
+
+        switch sub {
+        case "reset":
+                tg.alertMu.Lock()
+                tg.alertMinScore = 0
+                tg.alertMinLiq = 0
+                tg.alertMaxPump = 0
+                tg.alertMu.Unlock()
+
+                // Reset jenis sinyal ke default
+                tg.signalsMu.Lock()
+                tg.signals = map[string]bool{"EARLY_GEM": true, "BREAKOUT": true, "MOMENTUM": true}
+                tg.signalsMu.Unlock()
+
+                tg.send("♻️ <b>Semua filter direset ke default.</b>\nSemua sinyal EARLY_GEM, BREAKOUT, MOMENTUM aktif tanpa filter tambahan.")
+                return
+
+        case "score":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/alert score 80</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 || v > 100 {
+                        tg.send("❌ Nilai score harus angka 0–100. Contoh: <code>/alert score 80</code>")
+                        return
+                }
+                tg.alertMu.Lock()
+                tg.alertMinScore = v
+                tg.alertMu.Unlock()
+                if v == 0 {
+                        tg.send("✅ <b>Filter score dihapus</b> — semua score akan dinotifikasi.")
+                } else {
+                        tg.send(fmt.Sprintf("✅ <b>Filter score diset: ≥ %.0f</b>\nSinyal dengan score di bawah %.0f tidak akan dikirim.", v, v))
+                }
+
+        case "liq":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/alert liq 20000</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 {
+                        tg.send("❌ Nilai liq harus angka positif dalam USD. Contoh: <code>/alert liq 20000</code>")
+                        return
+                }
+                tg.alertMu.Lock()
+                tg.alertMinLiq = v
+                tg.alertMu.Unlock()
+                if v == 0 {
+                        tg.send("✅ <b>Filter liquidity dihapus</b> — semua liq akan dinotifikasi.")
+                } else {
+                        tg.send(fmt.Sprintf("✅ <b>Filter liquidity diset: ≥ $%.0f</b>\nSinyal dengan liq di bawah $%.0f tidak akan dikirim.", v, v))
+                }
+
+        case "pump":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/alert pump 40</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 {
+                        tg.send("❌ Nilai pump harus angka positif (%). Contoh: <code>/alert pump 40</code>")
+                        return
+                }
+                tg.alertMu.Lock()
+                tg.alertMaxPump = v
+                tg.alertMu.Unlock()
+                if v == 0 {
+                        tg.send("✅ <b>Filter pump dihapus</b> — semua pump5m akan dinotifikasi.")
+                } else {
+                        tg.send(fmt.Sprintf("✅ <b>Filter pump diset: ≤ %.0f%%</b>\nSinyal dengan pump5m di atas %.0f%% tidak akan dikirim.", v, v))
+                }
+
+        case "signal":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/alert signal EARLY_GEM</code> atau <code>/alert signal all</code> / <code>none</code>")
+                        return
+                }
+                sigArg := strings.ToUpper(args[1])
+
+                tg.signalsMu.Lock()
+                switch sigArg {
+                case "ALL":
+                        tg.signals["EARLY_GEM"] = true
+                        tg.signals["BREAKOUT"] = true
+                        tg.signals["MOMENTUM"] = true
+                        tg.signalsMu.Unlock()
+                        tg.send("✅ <b>Semua jenis sinyal diaktifkan:</b> EARLY_GEM, BREAKOUT, MOMENTUM.")
+                case "NONE":
+                        tg.signals["EARLY_GEM"] = false
+                        tg.signals["BREAKOUT"] = false
+                        tg.signals["MOMENTUM"] = false
+                        tg.signalsMu.Unlock()
+                        tg.send("✅ <b>Semua jenis sinyal dinonaktifkan.</b>\nHanya notifikasi entry/exit yang akan dikirim.")
+                case "EARLY_GEM", "BREAKOUT", "MOMENTUM":
+                        current := tg.signals[sigArg]
+                        tg.signals[sigArg] = !current
+                        newState := tg.signals[sigArg]
+                        tg.signalsMu.Unlock()
+                        stateStr := "✅ Diaktifkan"
+                        if !newState {
+                                stateStr = "❌ Dinonaktifkan"
+                        }
+                        tg.send(fmt.Sprintf("%s: sinyal <b>%s</b>", stateStr, sigArg))
+                default:
+                        tg.signalsMu.Unlock()
+                        tg.send(fmt.Sprintf(
+                                "❌ Sinyal tidak dikenal: <code>%s</code>\nPilihan valid: <code>EARLY_GEM</code>, <code>BREAKOUT</code>, <code>MOMENTUM</code>, <code>all</code>, <code>none</code>",
+                                sigArg,
+                        ))
+                }
+
+        default:
+                tg.send(fmt.Sprintf(
+                        "❓ Sub-perintah tidak dikenal: <code>%s</code>\n\n"+
+                                "Contoh penggunaan:\n"+
+                                "  /alert             — lihat filter aktif\n"+
+                                "  /alert score 80    — min score 80\n"+
+                                "  /alert liq 20000   — min liq $20k\n"+
+                                "  /alert pump 40     — max pump5m 40%%\n"+
+                                "  /alert signal BREAKOUT — toggle sinyal\n"+
+                                "  /alert reset       — hapus semua filter",
+                        sub,
+                ))
+        }
+}
+
+// alertShow menampilkan ringkasan filter yang sedang aktif.
+func (tg *TelegramNotifier) alertShow() {
+        tg.alertMu.RLock()
+        minScore := tg.alertMinScore
+        minLiq := tg.alertMinLiq
+        maxPump := tg.alertMaxPump
+        tg.alertMu.RUnlock()
+
+        scoreStr := "—"
+        if minScore > 0 {
+                scoreStr = fmt.Sprintf("≥ %.0f", minScore)
+        }
+        liqStr := "—"
+        if minLiq > 0 {
+                liqStr = fmt.Sprintf("≥ $%.0f", minLiq)
+        }
+        pumpStr := "—"
+        if maxPump > 0 {
+                pumpStr = fmt.Sprintf("≤ %.0f%%", maxPump)
+        }
+
+        tg.signalsMu.RLock()
+        var active, inactive []string
+        for _, sig := range []string{"EARLY_GEM", "BREAKOUT", "MOMENTUM"} {
+                if tg.signals[sig] {
+                        active = append(active, sig)
+                } else {
+                        inactive = append(inactive, sig)
+                }
+        }
+        tg.signalsMu.RUnlock()
+
+        sigActive := "semua nonaktif"
+        if len(active) > 0 {
+                sigActive = strings.Join(active, ", ")
+        }
+        sigInactive := "—"
+        if len(inactive) > 0 {
+                sigInactive = strings.Join(inactive, ", ")
+        }
+
+        tg.send(fmt.Sprintf(
+                "🔔 <b>Filter Alert Sinyal Aktif</b>\n\n"+
+                        "📊 Score minimum: <b>%s</b>\n"+
+                        "💧 Liquidity minimum: <b>%s</b>\n"+
+                        "📈 Pump 5m maksimum: <b>%s</b>\n\n"+
+                        "✅ Sinyal aktif: <b>%s</b>\n"+
+                        "❌ Sinyal nonaktif: <b>%s</b>\n\n"+
+                        "<i>Ketik /alert reset untuk hapus semua filter.\n"+
+                        "Ketik /help untuk melihat contoh perintah lengkap.</i>",
+                scoreStr, liqStr, pumpStr,
+                sigActive, sigInactive,
+        ))
 }
 
 // ─── Inline Keyboard & Callback ────────────────────────────────────────────────

@@ -30,6 +30,17 @@ type TelegramNotifier struct {
         // Dedup: cegah spam sinyal yang sama untuk token yang sama dalam 5 menit
         dedupMu sync.Mutex
         dedup   map[string]time.Time // key: "pairAddr:sigType" → waktu terakhir dikirim
+
+        // signals: jenis sinyal yang diaktifkan — dilindungi signalsMu
+        // (dipisah dari dedupMu karena dibaca pada hot path NotifySignal)
+        signalsMu sync.RWMutex
+
+        // Alert thresholds — bisa diubah realtime via /alert dari Telegram
+        // Nilai 0 berarti tidak ada filter (semua lolos).
+        alertMu       sync.RWMutex
+        alertMinScore float64 // score minimum untuk notifikasi sinyal (0 = semua)
+        alertMinLiq   float64 // liquidity minimum dalam USD (0 = semua)
+        alertMaxPump  float64 // pump 5m maksimum % (0 = tidak dibatasi)
 }
 
 // NewTelegramNotifier membaca konfigurasi dari env dan membuat notifier.
@@ -249,9 +260,33 @@ func (tg *TelegramNotifier) NotifyTP1(pos *Position, exitPrice float64, cfg *Str
 // NotifySignal dikirim untuk sinyal EARLY_GEM / BREAKOUT / MOMENTUM.
 // Jenis sinyal yang dikirim diatur oleh env var TG_SIGNALS.
 // Dedup: sinyal yang sama untuk token yang sama diabaikan dalam 5 menit.
+// Alert thresholds: diatur via /alert dari Telegram (score, liq, pump).
 func (tg *TelegramNotifier) NotifySignal(sig Signal, t *TokenInfo) {
-        if !tg.enabled || !tg.signals[sig.Type] {
+        if !tg.enabled {
                 return
+        }
+        tg.signalsMu.RLock()
+        allowed := tg.signals[sig.Type]
+        tg.signalsMu.RUnlock()
+        if !allowed {
+                return
+        }
+
+        // Terapkan alert thresholds yang diatur pengguna via /alert
+        tg.alertMu.RLock()
+        minScore := tg.alertMinScore
+        minLiq := tg.alertMinLiq
+        maxPump := tg.alertMaxPump
+        tg.alertMu.RUnlock()
+
+        if minScore > 0 && t.Score < minScore {
+                return // score terlalu rendah
+        }
+        if minLiq > 0 && t.Liquidity < minLiq {
+                return // liquidity terlalu kecil
+        }
+        if maxPump > 0 && t.PriceChange5m > maxPump {
+                return // sudah pump terlalu tinggi
         }
 
         // Cek dedup — cegah spam sinyal yang sama per token
@@ -324,6 +359,8 @@ func signalIcon(sigType string) string {
 }
 
 func (tg *TelegramNotifier) activeSignalList() []string {
+        tg.signalsMu.RLock()
+        defer tg.signalsMu.RUnlock()
         var out []string
         for k, v := range tg.signals {
                 if v {
