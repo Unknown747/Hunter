@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,14 +20,16 @@ type PositionManager struct {
 	trades    []*TradeLog
 	cfg       *StrategyConfig
 	exec      Executor
+	bl        *Blacklist
 }
 
-func NewPositionManager(cfg *StrategyConfig, exec Executor) *PositionManager {
+func NewPositionManager(cfg *StrategyConfig, exec Executor, bl *Blacklist) *PositionManager {
 	return &PositionManager{
 		positions: make(map[string]*Position),
 		trades:    make([]*TradeLog, 0, maxTradeLog),
 		cfg:       cfg,
 		exec:      exec,
+		bl:        bl,
 	}
 }
 
@@ -37,6 +40,11 @@ func (pm *PositionManager) OnTokenUpdate(t *TokenInfo, state *TokenState) {
 }
 
 func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
+	// Cek blacklist — blokir tanpa logging spam
+	if pm.bl.IsBlacklisted(t.PairAddress) {
+		return
+	}
+
 	// Cek awal dengan read lock (cepat)
 	pm.mu.RLock()
 	open := pm.openCount()
@@ -59,9 +67,7 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 		return
 	}
 
-	// Re-check di bawah write lock sebelum menyimpan posisi.
-	// Penting: cegah race condition jika goroutine lain juga berhasil buy
-	// di antara read lock dan write lock di atas.
+	// Re-check di bawah write lock sebelum menyimpan posisi
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -71,18 +77,20 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 	}
 
 	pos := &Position{
-		ID:           newID(),
-		PairAddress:  t.PairAddress,
-		TokenAddress: t.TokenAddress,
-		Symbol:       t.Symbol,
-		EntryPrice:   fill.Price,
-		EntryVolume:  t.Volume24h,
-		CurrentPrice: fill.Price,
-		SizeUSD:      pm.cfg.TradeSizeUSD,
-		RemainingPct: 100,
-		EntryTime:    time.Now(),
-		Status:       PositionOpen,
-		Fills:        []Fill{fill},
+		ID:            newID(),
+		PairAddress:   t.PairAddress,
+		TokenAddress:  t.TokenAddress,
+		Symbol:        t.Symbol,
+		EntryPrice:    fill.Price,
+		EntryVolume:   t.Volume24h,
+		CurrentPrice:  fill.Price,
+		HighWaterMark: fill.Price,
+		SizeUSD:       pm.cfg.TradeSizeUSD,
+		RemainingPct:  100,
+		EntryTime:     time.Now(),
+		Status:        PositionOpen,
+		GasCostUSD:    fill.GasUSD,
+		Fills:         []Fill{fill},
 	}
 	pm.positions[pos.ID] = pos
 
@@ -114,6 +122,7 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 		}
 		fill.Reason = exit.Reason
 		pos.Fills = append(pos.Fills, fill)
+		pos.GasCostUSD += fill.GasUSD
 
 		realizedThisFill := fill.USD - (pos.SizeUSD * exit.Fraction * (pos.RemainingPct / 100))
 		pos.RealizedUSD += realizedThisFill
@@ -126,6 +135,11 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 			pos.Status = PositionClosed
 			pos.ExitReason = exit.Reason
 
+			// Catat stop loss di blacklist
+			if strings.Contains(exit.Reason, "STOP LOSS") || strings.Contains(exit.Reason, "TRAILING STOP") {
+				pm.bl.RecordStopLoss(pos.PairAddress, pos.Symbol)
+			}
+
 			buyTx, sellTx := "", ""
 			for _, f := range pos.Fills {
 				if f.Action == "BUY" && buyTx == "" {
@@ -136,6 +150,7 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 				}
 			}
 
+			netPnL := pos.RealizedUSD - pos.GasCostUSD
 			log := &TradeLog{
 				ID:          pos.ID,
 				PairAddress: pos.PairAddress,
@@ -145,6 +160,8 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 				SizeUSD:     pos.SizeUSD,
 				PnLPercent:  pos.PnLPercent,
 				PnLUSD:      pos.RealizedUSD,
+				GasCostUSD:  pos.GasCostUSD,
+				NetPnLUSD:   netPnL,
 				Duration:    fmtDuration(time.Since(pos.EntryTime)),
 				ExitReason:  pos.ExitReason,
 				BuyTxHash:   buyTx,
@@ -161,16 +178,16 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 			if pos.PnLPercent > 0 {
 				mark = "🟢"
 			}
-			logger.Printf("[trader] %s TUTUP %s @ $%.6f | pnl=%.2f%% | %s | tx=%s",
-				mark, t.Symbol, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
+			logger.Printf("[trader] %s TUTUP %s @ $%.6f | pnl=%.2f%% | net=$%.4f | gas=$%.4f | %s",
+				mark, t.Symbol, fill.Price, pos.PnLPercent, netPnL, pos.GasCostUSD, exit.Reason)
 
 		} else {
-			// Partial close — tandai TP1 menggunakan perbandingan toleransi float
+			// Partial close — tandai TP1
 			if math.Abs(exit.Fraction-pm.cfg.TP1SellFrac) < 1e-9 {
 				pos.TP1Hit = true
 			}
-			logger.Printf("[trader] ✂️  PARSIAL %s | jual %.0f%% @ $%.6f | pnl=%.2f%% | %s | tx=%s",
-				t.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
+			logger.Printf("[trader] ✂️  PARSIAL %s | jual %.0f%% @ $%.6f | pnl=%.2f%% | %s",
+				t.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason)
 		}
 	}
 }
@@ -209,10 +226,13 @@ func (pm *PositionManager) Stats() TradingStats {
 		TotalTrades:   len(pm.trades),
 		BestTradePct:  0,
 		WorstTradePct: 0,
+		RiskLevel:     pm.cfg.RiskLevel,
 	}
 	first := true
 	for _, t := range pm.trades {
 		st.TotalPnLUSD += t.PnLUSD
+		st.TotalGasUSD += t.GasCostUSD
+		st.NetPnLUSD += t.NetPnLUSD
 		st.AvgPnLPct += t.PnLPercent
 		if t.PnLPercent > 0 {
 			st.WinCount++
@@ -259,7 +279,6 @@ func (pm *PositionManager) hasOpenFor(pairAddress string) bool {
 func newID() string {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback sangat jarang terjadi — gunakan timestamp sebagai ID
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
@@ -267,7 +286,7 @@ func newID() string {
 
 func fmtDuration(d time.Duration) string {
 	if d < time.Minute {
-		return fmt.Sprintf("%.0fd", d.Seconds())
+		return fmt.Sprintf("%.0fs", d.Seconds())
 	}
 	m := int(d.Minutes())
 	s := int(d.Seconds()) - m*60

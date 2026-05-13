@@ -12,7 +12,8 @@
     .tab-btn:hover { color:#9ca3af; }
     .tab-btn.active { border-bottom-color:#6366f1; color:#a5b4fc; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:.75rem; }
-    .trow { border-bottom:1px solid #111827; }
+    .trow { border-bottom:1px solid #111827; cursor:pointer; transition:background .1s; }
+    .trow:hover { background:#0d1020; }
     .trow:last-child { border-bottom:none; }
     .gem  { border-left:3px solid #059669; }
     .strong { border-left:3px solid #d97706; }
@@ -28,6 +29,9 @@
     .b-NEW_LISTING { background:#14532d;color:#86efac; }
     .b-MOMENTUM   { background:#7c2d12;color:#fdba74; }
     .b-BREAKOUT   { background:#1e1b4b;color:#a5b4fc; }
+    .b-risk-conservative { background:#1e3a5f;color:#93c5fd; }
+    .b-risk-normal { background:#1e293b;color:#94a3b8; }
+    .b-risk-aggressive { background:#4c0519;color:#fca5a5; }
     .pulse { animation:pulse 2s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
     .score-bar { height:3px; border-radius:9999px; background:#1f2937; }
@@ -35,6 +39,8 @@
     ::-webkit-scrollbar{width:4px}
     ::-webkit-scrollbar-track{background:var(--bg)}
     ::-webkit-scrollbar-thumb{background:#1e2130;border-radius:4px}
+    #history-panel { transition: max-height .3s ease, opacity .3s; max-height:0; opacity:0; overflow:hidden; }
+    #history-panel.open { max-height:220px; opacity:1; }
   </style>
 </head>
 <body class="text-gray-300 min-h-screen">
@@ -45,6 +51,7 @@
     <div class="w-2 h-2 rounded-full bg-emerald-400 pulse"></div>
     <span class="font-bold text-white tracking-tight text-sm">Base Meme Coin Hunter</span>
     <span class="text-xs text-gray-600">Aerodrome · Base Mainnet</span>
+    <span id="risk-badge" class="badge hidden"></span>
   </div>
   <div class="flex items-center gap-5 text-xs text-gray-500">
     <span id="hdr-info"></span>
@@ -56,7 +63,7 @@
 <div class="max-w-7xl mx-auto px-4 py-4">
 
   <!-- Stat cards -->
-  <div class="grid grid-cols-8 gap-2 mb-4">
+  <div class="grid grid-cols-9 gap-2 mb-4">
     <div class="card p-3 text-center col-span-1">
       <div class="text-xl font-bold text-white" id="s-tracked">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Tracked</div>
@@ -86,13 +93,26 @@
       <div class="text-xs text-gray-600 mt-0.5">P&amp;L $</div>
     </div>
     <div class="card p-3 text-center col-span-1">
+      <div class="text-xl font-bold" id="s-netpnl">—</div>
+      <div class="text-xs text-gray-600 mt-0.5">Net P&amp;L</div>
+    </div>
+    <div class="card p-3 text-center col-span-1">
       <div class="text-xl font-bold text-gray-400" id="s-cycle">—</div>
       <div class="text-xs text-gray-600 mt-0.5">Cycles</div>
     </div>
   </div>
 
+  <!-- Score history panel (hidden by default, shown on row click) -->
+  <div id="history-panel" class="card mb-4 px-4 py-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-xs font-semibold text-gray-400" id="history-label">Score History</div>
+      <button onclick="closeHistory()" class="text-gray-700 hover:text-gray-400 text-xs">✕ tutup</button>
+    </div>
+    <canvas id="history-chart" height="100" class="w-full"></canvas>
+  </div>
+
   <!-- Tab strip -->
-  <div class="flex gap-1 border-b border-gray-800/60 mb-4">
+  <div class="flex gap-1 border-b border-gray-800/60 mb-4 flex-wrap">
     <button class="tab-btn active px-4 py-2 text-xs font-semibold" data-tab="all">All Tokens</button>
     <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="gems">Gems</button>
     <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="signals">Signals</button>
@@ -100,6 +120,7 @@
     <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="trades">Trade Log</button>
     <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="movers">Top Movers</button>
     <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="hot">Hot Pairs</button>
+    <button class="tab-btn px-4 py-2 text-xs font-semibold" data-tab="blacklist">Blacklist</button>
   </div>
 
   <!-- Views -->
@@ -110,12 +131,14 @@
   <div id="view-trades"    class="view hidden"></div>
   <div id="view-movers"    class="view hidden"></div>
   <div id="view-hot"       class="view hidden"></div>
+  <div id="view-blacklist" class="view hidden"></div>
 
 </div>
 
 <script>
 const BASE = window.location.pathname.startsWith('/hunter') ? '/hunter' : '';
 let currentTab = 'all';
+let selectedPair = null;
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -143,7 +166,7 @@ const pct = (v, d=2) => {
   return `<span class="${cls}">${v >= 0 ? '+' : ''}${v.toFixed(d)}%</span>`;
 };
 const age = h => h < 1 ? Math.round(h*60)+'m' : h.toFixed(1)+'h';
-const score = s => {
+const scoreBar = s => {
   const w = Math.min(100, Math.round(s));
   const c = s >= 75 ? '#10b981' : s >= 50 ? '#f59e0b' : '#374151';
   return `<div class="flex items-center gap-2">
@@ -157,6 +180,98 @@ const catBadge = c => {
 };
 const sigBadges = sigs => (sigs||[]).map(s => `<span class="badge b-${s}">${s.replace('_',' ')}</span>`).join(' ');
 
+// ── Score History Chart ───────────────────────────────────────────────────────
+function closeHistory() {
+  document.getElementById('history-panel').classList.remove('open');
+  selectedPair = null;
+}
+
+async function showHistory(pairAddr, symbol) {
+  if (selectedPair === pairAddr) { closeHistory(); return; }
+  selectedPair = pairAddr;
+
+  const data = await api('/api/token/' + pairAddr + '/history');
+  if (!data || data.length < 2) {
+    closeHistory();
+    return;
+  }
+
+  document.getElementById('history-label').textContent =
+    `Score History — ${symbol} (${data.length} snapshots)`;
+  const panel = document.getElementById('history-panel');
+  panel.classList.add('open');
+
+  // Draw sparkline
+  const canvas = document.getElementById('history-chart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.parentElement.clientWidth - 32;
+  canvas.height = 100;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const scores = data.map(d => d.score);
+  const prices = data.map(d => d.price);
+  const minS = Math.min(...scores), maxS = Math.max(...scores);
+  const rangeS = maxS - minS || 1;
+
+  const w = canvas.width, h = canvas.height - 20;
+  const step = w / (data.length - 1);
+
+  // Grid lines
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  [25, 50, 75].forEach(v => {
+    const y = h - ((v - 0) / 100 * h);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = '#374151';
+    ctx.font = '9px monospace';
+    ctx.fillText(v, 2, y - 2);
+  });
+
+  // Score line
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = i * step;
+    const y = h - ((d.score - 0) / 100 * h);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#6366f1';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Dots + price labels
+  data.forEach((d, i) => {
+    const x = i * step;
+    const y = h - ((d.score - 0) / 100 * h);
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = d.score >= 75 ? '#10b981' : d.score >= 50 ? '#f59e0b' : '#6b7280';
+    ctx.fill();
+  });
+
+  // Price line (normalized to canvas height, secondary axis)
+  const minP = Math.min(...prices), maxP = Math.max(...prices), rangeP = maxP - minP || 1;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = i * step;
+    const y = h - ((d.price - minP) / rangeP * h * 0.8 + h * 0.1);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // X-axis timestamps
+  ctx.fillStyle = '#374151';
+  ctx.font = '9px monospace';
+  [0, Math.floor(data.length/2), data.length-1].forEach(i => {
+    if (!data[i]) return;
+    const t = new Date(data[i].timestamp).toLocaleTimeString();
+    ctx.fillText(t, i * step, h + 15);
+  });
+}
+
 // ── Token table ───────────────────────────────────────────────────────────────
 function tokenTable(tokens) {
   if (!tokens?.length) return empty('Scanning for tokens on Aerodrome Base...');
@@ -168,12 +283,13 @@ function tokenTable(tokens) {
       : '<span class="text-gray-700">—</span>';
     const buyPct = t.buyRatio ? (t.buyRatio*100).toFixed(0)+'%' : '—';
     const buyCls = t.buyRatio >= 0.65 ? 'text-emerald-400' : 'text-gray-500';
-    return `<tr class="trow ${cls}">
+    const isSel = selectedPair === t.pairAddress;
+    return `<tr class="trow ${cls}${isSel?' bg-indigo-950/30':''}" onclick="showHistory('${t.pairAddress}','${(t.symbol||'').replace(/'/g,'')}')" title="Klik untuk lihat score history">
       <td class="px-4 py-2.5">
         <div class="font-semibold text-white text-sm">${t.symbol||'?'}</div>
         <div class="text-xs text-gray-600">${(t.name||'').slice(0,18)}</div>
       </td>
-      <td class="px-3 py-2.5 w-32">${score(t.score)}</td>
+      <td class="px-3 py-2.5 w-32">${scoreBar(t.score)}</td>
       <td class="px-3 py-2.5 text-right font-mono text-xs text-gray-400">${t.price>0?'$'+t.price.toPrecision(4):'—'}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-400">${usd(t.liquidity)}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-400">${usd(t.volume24h)}</td>
@@ -232,18 +348,23 @@ function renderPositions(positions) {
     const pcCls = pc >= 0 ? 'text-emerald-400' : 'text-red-400';
     const borderCls = open ? 'pos-open' : (pc >= 0 ? 'pos-win' : 'pos-loss');
     const holdMin = open ? Math.round((Date.now() - new Date(p.entryTime)) / 60000) : null;
+    const hwm = p.highWaterMark > p.entryPrice
+      ? `<span class="badge b-MOMENTUM" title="High Water Mark">HWM $${p.highWaterMark.toPrecision(4)}</span>`
+      : '';
+    const gasInfo = p.gasCostUSD > 0 ? `gas $${p.gasCostUSD.toFixed(4)}` : '';
     return `<div class="card ${borderCls} p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <span class="font-bold text-white text-base">${p.symbol}</span>
           ${open
             ? `<span class="badge b-sig">OPEN · ${holdMin}m</span>`
             : `<span class="badge b-watch">CLOSED</span>`}
           ${p.tp1Hit ? '<span class="badge" style="background:#78350f;color:#fde68a">TP1 ✓</span>' : ''}
+          ${hwm}
         </div>
         <div class="text-right">
           <div class="text-lg font-bold ${pcCls}">${pc>=0?'+':''}${pc.toFixed(2)}%</div>
-          <div class="text-xs text-gray-600">${p.remainingPct.toFixed(0)}% remaining</div>
+          <div class="text-xs text-gray-600">${p.remainingPct.toFixed(0)}% remaining · ${gasInfo}</div>
         </div>
       </div>
       <div class="grid grid-cols-4 gap-4 text-xs">
@@ -268,6 +389,8 @@ function renderTrades(trades) {
     const win = t.pnlPercent >= 0;
     const border = win ? 'pos-win' : 'pos-loss';
     const pcCls = win ? 'text-emerald-400' : 'text-red-400';
+    const netPnl = t.netPnLUSD || 0;
+    const netCls = netPnl >= 0 ? 'text-emerald-400' : 'text-red-400';
     return `<tr class="trow ${border}">
       <td class="px-4 py-2.5 font-semibold text-white text-sm">${t.symbol}</td>
       <td class="px-3 py-2.5 text-right font-mono text-xs text-gray-400">$${t.entryPrice.toPrecision(4)}</td>
@@ -275,6 +398,8 @@ function renderTrades(trades) {
       <td class="px-3 py-2.5 text-right text-xs text-gray-400">$${t.sizeUSD.toFixed(2)}</td>
       <td class="px-3 py-2.5 text-right text-xs font-bold ${pcCls}">${win?'+':''}${t.pnlPercent.toFixed(2)}%</td>
       <td class="px-3 py-2.5 text-right text-xs ${pcCls}">${win?'+':''}$${(t.pnlUSD||0).toFixed(4)}</td>
+      <td class="px-3 py-2.5 text-right text-xs text-orange-400/70">$${(t.gasCostUSD||0).toFixed(4)}</td>
+      <td class="px-3 py-2.5 text-right text-xs font-bold ${netCls}">${netPnl>=0?'+':''}$${netPnl.toFixed(4)}</td>
       <td class="px-3 py-2.5 text-right text-xs text-gray-600">${t.duration}</td>
       <td class="px-3 py-2.5 text-xs text-gray-600 max-w-xs truncate">${t.exitReason}</td>
       <td class="px-3 py-2.5 text-xs font-mono text-gray-700">${t.buyTxHash ? t.buyTxHash.slice(0,10)+'…' : '—'}</td>
@@ -289,9 +414,42 @@ function renderTrades(trades) {
       <th class="px-3 py-2.5 text-right">Size</th>
       <th class="px-3 py-2.5 text-right">P&L %</th>
       <th class="px-3 py-2.5 text-right">P&L $</th>
-      <th class="px-3 py-2.5 text-right">Duration</th>
+      <th class="px-3 py-2.5 text-right">Gas $</th>
+      <th class="px-3 py-2.5 text-right">Net P&L</th>
+      <th class="px-3 py-2.5 text-right">Dur</th>
       <th class="px-3 py-2.5 text-left">Reason</th>
       <th class="px-3 py-2.5 text-left">Tx</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+// ── Blacklist ─────────────────────────────────────────────────────────────────
+function renderBlacklist(entries) {
+  if (!entries?.length) return empty('Tidak ada token yang diblokir saat ini.');
+  const rows = entries.map(e => {
+    const remaining = Math.max(0, Math.round((new Date(e.expireAt) - Date.now()) / 60000));
+    return `<tr class="trow pos-loss">
+      <td class="px-4 py-2.5 font-semibold text-white text-sm">${e.symbol}</td>
+      <td class="px-3 py-2.5 text-xs text-gray-500 font-mono">${e.pairAddress.slice(0,14)}…</td>
+      <td class="px-3 py-2.5 text-xs text-red-400">${e.slCount}x stop loss</td>
+      <td class="px-3 py-2.5 text-xs text-gray-500">${e.reason}</td>
+      <td class="px-3 py-2.5 text-xs text-amber-400">${remaining}m tersisa</td>
+      <td class="px-3 py-2.5 text-xs text-gray-700">${new Date(e.lastSL).toLocaleTimeString()}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="card overflow-x-auto">
+  <div class="px-4 py-2.5 border-b border-gray-800 text-xs text-gray-600">
+    Token diblokir sementara setelah ${2} kali stop loss dalam 24 jam. Blokir berlaku selama 6 jam.
+  </div>
+  <table class="w-full text-sm">
+    <thead><tr class="text-xs text-gray-700 uppercase tracking-wider border-b border-gray-800">
+      <th class="px-4 py-2.5 text-left">Token</th>
+      <th class="px-3 py-2.5 text-left">Pair</th>
+      <th class="px-3 py-2.5 text-left">SL Count</th>
+      <th class="px-3 py-2.5 text-left">Alasan</th>
+      <th class="px-3 py-2.5 text-left">Sisa Waktu</th>
+      <th class="px-3 py-2.5 text-left">SL Terakhir</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
@@ -305,8 +463,6 @@ const api = async path => {
   try { return await (await fetch(BASE + path)).json(); }
   catch { return null; }
 };
-
-let cache = {};
 
 async function poll() {
   const [stats, tStats] = await Promise.all([api('/api/stats'), api('/api/trading-stats')]);
@@ -331,6 +487,18 @@ async function poll() {
     const pv = tStats.totalPnLUSD || 0;
     pnl.textContent = tStats.totalTrades > 0 ? (pv>=0?'+':'')+'$'+pv.toFixed(4) : '—';
     pnl.className = 'text-xl font-bold ' + (pv >= 0 ? 'text-emerald-400' : 'text-red-400');
+
+    const netEl = document.getElementById('s-netpnl');
+    const nv = tStats.netPnLUSD || 0;
+    netEl.textContent = tStats.totalTrades > 0 ? (nv>=0?'+':'')+'$'+nv.toFixed(4) : '—';
+    netEl.className = 'text-xl font-bold ' + (nv >= 0 ? 'text-emerald-400' : 'text-red-400');
+
+    // Risk level badge
+    const risk = tStats.riskLevel || 'normal';
+    const rb = document.getElementById('risk-badge');
+    rb.textContent = risk.toUpperCase();
+    rb.className = `badge b-risk-${risk}`;
+    rb.classList.remove('hidden');
   }
   document.getElementById('hdr-time').textContent = new Date().toLocaleTimeString();
 
@@ -340,19 +508,21 @@ async function poll() {
 async function renderCurrent() {
   const tab = currentTab;
   let data;
-  if (tab === 'all')       data = await api('/api/tokens');
-  else if (tab === 'gems') data = await api('/api/gems');
-  else if (tab === 'signals')   data = await api('/api/signals');
-  else if (tab === 'positions') data = await api('/api/positions');
-  else if (tab === 'trades')    data = await api('/api/trades');
-  else if (tab === 'movers')    data = await api('/api/movers');
-  else if (tab === 'hot')       data = await api('/api/hot');
+  if (tab === 'all')         data = await api('/api/tokens');
+  else if (tab === 'gems')   data = await api('/api/gems');
+  else if (tab === 'signals')    data = await api('/api/signals');
+  else if (tab === 'positions')  data = await api('/api/positions');
+  else if (tab === 'trades')     data = await api('/api/trades');
+  else if (tab === 'movers')     data = await api('/api/movers');
+  else if (tab === 'hot')        data = await api('/api/hot');
+  else if (tab === 'blacklist')  data = await api('/api/blacklist');
 
   const el = document.getElementById('view-' + tab);
-  if (tab === 'signals')   el.innerHTML = renderSignals(data);
-  else if (tab === 'positions') el.innerHTML = renderPositions(data);
-  else if (tab === 'trades')    el.innerHTML = renderTrades(data);
-  else                          el.innerHTML = tokenTable(data);
+  if (tab === 'signals')       el.innerHTML = renderSignals(data);
+  else if (tab === 'positions')    el.innerHTML = renderPositions(data);
+  else if (tab === 'trades')       el.innerHTML = renderTrades(data);
+  else if (tab === 'blacklist')    el.innerHTML = renderBlacklist(data);
+  else                             el.innerHTML = tokenTable(data);
 }
 
 poll();

@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-// TokenInfo is the normalized internal representation of a pair/token.
+// TokenInfo adalah representasi internal yang sudah dinormalisasi dari sebuah pair/token.
 type TokenInfo struct {
 	PairAddress   string    `json:"pairAddress"`
 	TokenAddress  string    `json:"tokenAddress"`
@@ -25,7 +25,7 @@ type TokenInfo struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
-// TokenState tracks per-token historical data for signal detection.
+// TokenState melacak data historis per-token untuk deteksi sinyal.
 type TokenState struct {
 	LastScore     float64
 	LastVolume    float64
@@ -37,15 +37,15 @@ type TokenState struct {
 	History       []ScoreSnapshot
 }
 
-// ScoreSnapshot is a point-in-time record used for momentum detection.
+// ScoreSnapshot adalah rekaman point-in-time untuk deteksi momentum.
 type ScoreSnapshot struct {
-	Score     float64
-	Volume    float64
-	Price     float64
-	Timestamp time.Time
+	Score     float64   `json:"score"`
+	Volume    float64   `json:"volume"`
+	Price     float64   `json:"price"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
-// Signal represents a detected market event.
+// Signal merepresentasikan event market yang terdeteksi.
 type Signal struct {
 	Type        string    `json:"type"`
 	PairAddress string    `json:"pairAddress"`
@@ -55,7 +55,7 @@ type Signal struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// EngineStats is returned by GET /api/stats.
+// EngineStats dikembalikan oleh GET /api/stats.
 type EngineStats struct {
 	TotalTracked   int    `json:"totalTracked"`
 	TotalGems      int    `json:"totalGems"`
@@ -76,39 +76,42 @@ const (
 	PositionClosed PositionStatus = "CLOSED"
 )
 
-// Position represents an open or closed trade on Base mainnet.
+// Position merepresentasikan trade terbuka atau tertutup di Base mainnet.
 type Position struct {
-	ID           string         `json:"id"`
-	PairAddress  string         `json:"pairAddress"`
-	TokenAddress string         `json:"tokenAddress"`
-	Symbol       string         `json:"symbol"`
-	EntryPrice   float64        `json:"entryPrice"`
-	EntryVolume  float64        `json:"entryVolume"`
-	CurrentPrice float64        `json:"currentPrice"`
-	SizeUSD      float64        `json:"sizeUSD"`
-	RemainingPct float64        `json:"remainingPct"` // 0–100
-	EntryTime    time.Time      `json:"entryTime"`
-	Status       PositionStatus `json:"status"`
-	PnLPercent   float64        `json:"pnlPercent"`
-	RealizedUSD  float64        `json:"realizedUSD"`
-	ExitReason   string         `json:"exitReason,omitempty"`
-	TP1Hit       bool           `json:"tp1Hit"`
-	Fills        []Fill         `json:"fills"`
+	ID             string         `json:"id"`
+	PairAddress    string         `json:"pairAddress"`
+	TokenAddress   string         `json:"tokenAddress"`
+	Symbol         string         `json:"symbol"`
+	EntryPrice     float64        `json:"entryPrice"`
+	EntryVolume    float64        `json:"entryVolume"`
+	CurrentPrice   float64        `json:"currentPrice"`
+	SizeUSD        float64        `json:"sizeUSD"`
+	RemainingPct   float64        `json:"remainingPct"` // 0–100
+	EntryTime      time.Time      `json:"entryTime"`
+	Status         PositionStatus `json:"status"`
+	PnLPercent     float64        `json:"pnlPercent"`
+	RealizedUSD    float64        `json:"realizedUSD"`
+	ExitReason     string         `json:"exitReason,omitempty"`
+	TP1Hit         bool           `json:"tp1Hit"`
+	HighWaterMark  float64        `json:"highWaterMark"`  // trailing stop — harga tertinggi yang pernah dicapai
+	GasCostUSD     float64        `json:"gasCostUSD"`     // akumulasi biaya gas
+	Fills          []Fill         `json:"fills"`
 }
 
-// Fill records each buy or partial/full sell action.
+// Fill mencatat setiap aksi beli atau jual parsial/penuh.
 type Fill struct {
 	Action    string    `json:"action"` // BUY / SELL
 	Price     float64   `json:"price"`
 	PctOfPos  float64   `json:"pctOfPos"`
 	USD       float64   `json:"usd"`
 	PnLPct    float64   `json:"pnlPct"`
+	GasUSD    float64   `json:"gasUSD,omitempty"` // biaya gas transaksi ini
 	Reason    string    `json:"reason"`
 	TxHash    string    `json:"txHash,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// TradeLog is written when a position is fully closed.
+// TradeLog ditulis saat posisi ditutup sepenuhnya.
 type TradeLog struct {
 	ID          string    `json:"id"`
 	PairAddress string    `json:"pairAddress"`
@@ -118,6 +121,8 @@ type TradeLog struct {
 	SizeUSD     float64   `json:"sizeUSD"`
 	PnLPercent  float64   `json:"pnlPercent"`
 	PnLUSD      float64   `json:"pnlUSD"`
+	GasCostUSD  float64   `json:"gasCostUSD"`            // total biaya gas
+	NetPnLUSD   float64   `json:"netPnLUSD"`             // PnLUSD dikurangi gas
 	Duration    string    `json:"duration"`
 	ExitReason  string    `json:"exitReason"`
 	BuyTxHash   string    `json:"buyTxHash,omitempty"`
@@ -126,7 +131,7 @@ type TradeLog struct {
 	CloseTime   time.Time `json:"closeTime"`
 }
 
-// TradingStats is returned by GET /api/trading-stats.
+// TradingStats dikembalikan oleh GET /api/trading-stats.
 type TradingStats struct {
 	OpenTrades    int     `json:"openTrades"`
 	MaxTrades     int     `json:"maxTrades"`
@@ -135,24 +140,58 @@ type TradingStats struct {
 	LossCount     int     `json:"lossCount"`
 	WinRate       float64 `json:"winRate"`
 	TotalPnLUSD   float64 `json:"totalPnLUSD"`
+	TotalGasUSD   float64 `json:"totalGasUSD"`
+	NetPnLUSD     float64 `json:"netPnLUSD"`
 	AvgPnLPct     float64 `json:"avgPnLPct"`
 	BestTradePct  float64 `json:"bestTradePct"`
 	WorstTradePct float64 `json:"worstTradePct"`
+	RiskLevel     string  `json:"riskLevel"`
 }
 
-// StrategyConfig holds all tunable parameters.
+// BlacklistEntry mencatat token yang diblokir sementara.
+type BlacklistEntry struct {
+	PairAddress string    `json:"pairAddress"`
+	Symbol      string    `json:"symbol"`
+	Reason      string    `json:"reason"`
+	SLCount     int       `json:"slCount"`
+	LastSL      time.Time `json:"lastSL"`
+	ExpireAt    time.Time `json:"expireAt"`
+}
+
+// PersistedState adalah snapshot lengkap yang disimpan ke disk.
+type PersistedState struct {
+	Positions map[string]*Position      `json:"positions"`
+	Trades    []*TradeLog               `json:"trades"`
+	Blacklist map[string]*BlacklistEntry `json:"blacklist"`
+	SavedAt   time.Time                 `json:"savedAt"`
+}
+
+// HealthStatus dikembalikan oleh GET /health.
+type HealthStatus struct {
+	Status        string `json:"status"`
+	Uptime        string `json:"uptime"`
+	CycleCount    int64  `json:"cycleCount"`
+	TrackedTokens int    `json:"trackedTokens"`
+	OpenPositions int    `json:"openPositions"`
+	RiskLevel     string `json:"riskLevel"`
+	LastPollAgo   string `json:"lastPollAgo"`
+}
+
+// StrategyConfig menyimpan semua parameter yang bisa diatur.
 type StrategyConfig struct {
-	MinScore        float64
-	MinBuyRatio     float64
-	MinVolumeSpike  float64
-	MinLiquidityUSD float64
-	MinAgeMinutes   float64
-	MaxAgeMinutes   float64
-	MaxPricePump5m  float64
-	TP1Pct          float64
-	TP1SellFrac     float64
-	TP2Pct          float64
-	StopLossPct     float64
+	MinScore            float64
+	MinBuyRatio         float64
+	MinVolumeSpike      float64
+	MinLiquidityUSD     float64
+	MinAgeMinutes       float64
+	MaxAgeMinutes       float64
+	MaxPricePump5m      float64
+	TP1Pct              float64
+	TP1SellFrac         float64
+	TP2Pct              float64
+	StopLossPct         float64
+	TrailingStopPct     float64 // trailing stop % dari high water mark (0 = nonaktif)
+	TrailingActivatePct float64 // aktifkan trailing stop setelah profit ini %
 	EmergencyBuyRatio   float64
 	SuddenDumpThreshold float64
 	VolumeDropFraction  float64
@@ -160,22 +199,25 @@ type StrategyConfig struct {
 	MinProfitForHold    float64
 	TradeSizeUSD        float64
 	MaxOpenTrades       int
+	RiskLevel           string
 }
 
-// DefaultConfig returns the EARLY_MOMENTUM_SCALP strategy.
+// DefaultConfig mengembalikan strategi EARLY_MOMENTUM_SCALP (normal).
 func DefaultConfig() *StrategyConfig {
 	return &StrategyConfig{
-		MinScore:        75,
-		MinBuyRatio:     0.65,
-		MinVolumeSpike:  2.0,
-		MinLiquidityUSD: 15000,
-		MinAgeMinutes:   5,
-		MaxAgeMinutes:   90,
-		MaxPricePump5m:  120,
-		TP1Pct:          12,
-		TP1SellFrac:     0.5,
-		TP2Pct:          25,
-		StopLossPct:     -10,
+		MinScore:            75,
+		MinBuyRatio:         0.65,
+		MinVolumeSpike:      2.0,
+		MinLiquidityUSD:     15000,
+		MinAgeMinutes:       5,
+		MaxAgeMinutes:       90,
+		MaxPricePump5m:      120,
+		TP1Pct:              12,
+		TP1SellFrac:         0.5,
+		TP2Pct:              25,
+		StopLossPct:         -10,
+		TrailingStopPct:     8,
+		TrailingActivatePct: 8,
 		EmergencyBuyRatio:   0.50,
 		SuddenDumpThreshold: -15,
 		VolumeDropFraction:  0.5,
@@ -183,7 +225,42 @@ func DefaultConfig() *StrategyConfig {
 		MinProfitForHold:    5,
 		TradeSizeUSD:        1.0,
 		MaxOpenTrades:       3,
+		RiskLevel:           "normal",
 	}
+}
+
+// ConfigForRisk mengembalikan konfigurasi sesuai level risiko.
+// RISK_LEVEL=conservative | normal | aggressive
+func ConfigForRisk(level string) *StrategyConfig {
+	cfg := DefaultConfig()
+	switch level {
+	case "conservative":
+		cfg.MinScore = 85
+		cfg.MinBuyRatio = 0.70
+		cfg.MinLiquidityUSD = 30000
+		cfg.MaxAgeMinutes = 60
+		cfg.StopLossPct = -7
+		cfg.TrailingStopPct = 5
+		cfg.TrailingActivatePct = 5
+		cfg.EmergencyBuyRatio = 0.55
+		cfg.MaxOpenTrades = 2
+		cfg.RiskLevel = "conservative"
+	case "aggressive":
+		cfg.MinScore = 65
+		cfg.MinBuyRatio = 0.60
+		cfg.MinLiquidityUSD = 10000
+		cfg.MaxAgeMinutes = 120
+		cfg.MaxPricePump5m = 150
+		cfg.StopLossPct = -15
+		cfg.TrailingStopPct = 12
+		cfg.TrailingActivatePct = 12
+		cfg.EmergencyBuyRatio = 0.45
+		cfg.MaxOpenTrades = 5
+		cfg.RiskLevel = "aggressive"
+	default:
+		cfg.RiskLevel = "normal"
+	}
+	return cfg
 }
 
 // ─── DexScreener raw API response structs ─────────────────────────────────────

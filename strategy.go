@@ -24,8 +24,6 @@ func CheckEntry(t *TokenInfo, state *TokenState, cfg *StrategyConfig) EntryResul
 	ageMin := t.PairAgeHours * 60
 
 	// ── Anti-rug filter ────────────────────────────────────────────────────────
-	// Jika pairCreatedAt=0, umur tidak diketahui — skip untuk menghindari trading
-	// pair lama yang sudah established
 	if t.PairAgeHours == 0 {
 		return EntryResult{false, "anti-rug: umur tidak diketahui (pairCreatedAt=0)"}
 	}
@@ -81,6 +79,7 @@ func CheckEntry(t *TokenInfo, state *TokenState, cfg *StrategyConfig) EntryResul
 }
 
 // CheckExit mengevaluasi semua kondisi SELL untuk posisi yang sedang terbuka.
+// PENTING: dipanggil di bawah write lock — boleh memutasikan field di *Position.
 func CheckExit(p *Position, t *TokenInfo, cfg *StrategyConfig) ExitResult {
 	if t.Price <= 0 || p.EntryPrice <= 0 {
 		return ExitResult{}
@@ -103,6 +102,29 @@ func CheckExit(p *Position, t *TokenInfo, cfg *StrategyConfig) ExitResult {
 	// ── Stop loss ──────────────────────────────────────────────────────────────
 	if pnlPct <= cfg.StopLossPct {
 		return ExitResult{true, 1.0, fmt.Sprintf("STOP LOSS %.1f%%", pnlPct)}
+	}
+
+	// ── Trailing stop ──────────────────────────────────────────────────────────
+	if cfg.TrailingStopPct > 0 {
+		// Inisialisasi HWM ke harga entry pertama kali
+		if p.HighWaterMark < p.EntryPrice {
+			p.HighWaterMark = p.EntryPrice
+		}
+		// Perbarui HWM ke harga tertinggi yang pernah dicapai
+		if t.Price > p.HighWaterMark {
+			p.HighWaterMark = t.Price
+		}
+		// Aktifkan hanya setelah profit melewati threshold
+		hwmPnlPct := (p.HighWaterMark/p.EntryPrice - 1) * 100
+		if hwmPnlPct >= cfg.TrailingActivatePct {
+			dropFromHWM := (p.HighWaterMark - t.Price) / p.HighWaterMark * 100
+			if dropFromHWM >= cfg.TrailingStopPct {
+				return ExitResult{true, 1.0, fmt.Sprintf(
+					"TRAILING STOP: -%.1f%% dari high $%.6f (peak +%.1f%%)",
+					dropFromHWM, p.HighWaterMark, hwmPnlPct,
+				)}
+			}
+		}
 	}
 
 	// ── Time exit (tidak ada momentum) ────────────────────────────────────────
