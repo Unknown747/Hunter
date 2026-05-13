@@ -13,8 +13,8 @@ const maxTradeLog = 500
 // PositionManager tracks all open and closed positions.
 type PositionManager struct {
 	mu        sync.RWMutex
-	positions map[string]*Position // positionID → Position
-	trades    []*TradeLog          // completed trade history (newest first)
+	positions map[string]*Position
+	trades    []*TradeLog
 	cfg       *StrategyConfig
 	exec      Executor
 }
@@ -29,25 +29,18 @@ func NewPositionManager(cfg *StrategyConfig, exec Executor) *PositionManager {
 }
 
 // OnTokenUpdate is called from the pipeline for every token update.
-// It evaluates entry conditions for new positions and exit conditions for open ones.
 func (pm *PositionManager) OnTokenUpdate(t *TokenInfo, state *TokenState) {
-	// 1. Check exits on any open position in this token
 	pm.checkExits(t)
-
-	// 2. Check entry — only if below max open trades
 	pm.checkEntry(t, state)
 }
 
 func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 	pm.mu.RLock()
-	openCount := pm.openCount()
-	alreadyOpen := pm.hasOpenPositionFor(t.PairAddress)
+	open := pm.openCount()
+	already := pm.hasOpenFor(t.PairAddress)
 	pm.mu.RUnlock()
 
-	if alreadyOpen {
-		return
-	}
-	if openCount >= pm.cfg.MaxOpenTrades {
+	if already || open >= pm.cfg.MaxOpenTrades {
 		return
 	}
 
@@ -56,10 +49,9 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 		return
 	}
 
-	// Execute buy
 	fill, err := pm.exec.Buy(t, pm.cfg.TradeSizeUSD)
 	if err != nil {
-		logger.Printf("[trader] BUY failed for %s: %v", t.Symbol, err)
+		logger.Printf("[trader] BUY failed %s: %v", t.Symbol, err)
 		return
 	}
 
@@ -75,7 +67,6 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 		RemainingPct: 100,
 		EntryTime:    time.Now(),
 		Status:       PositionOpen,
-		Mode:         pm.exec.Mode(),
 		Fills:        []Fill{fill},
 	}
 
@@ -83,8 +74,8 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 	pm.positions[pos.ID] = pos
 	pm.mu.Unlock()
 
-	logger.Printf("[trader] ✅ OPEN %s | %s @ $%.6f | score=%.1f | reason: %s",
-		pm.exec.Mode(), t.Symbol, fill.Price, t.Score, result.Reason)
+	logger.Printf("[trader] ✅ OPEN %s @ $%.6f | score=%.1f | %s | tx=%s",
+		t.Symbol, fill.Price, t.Score, result.Reason, fill.TxHash)
 }
 
 func (pm *PositionManager) checkExits(t *TokenInfo) {
@@ -96,7 +87,6 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 			continue
 		}
 
-		// Update current price & P&L
 		pos.CurrentPrice = t.Price
 		pos.PnLPercent = (t.Price/pos.EntryPrice - 1) * 100
 
@@ -107,27 +97,33 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 
 		fill, err := pm.exec.Sell(t, pos, exit.Fraction, exit.Reason)
 		if err != nil {
-			logger.Printf("[trader] SELL failed for %s: %v", t.Symbol, err)
+			logger.Printf("[trader] SELL failed %s: %v", t.Symbol, err)
 			continue
 		}
 		fill.Reason = exit.Reason
 		pos.Fills = append(pos.Fills, fill)
 
-		// Track realized P&L (USD returned from partial sell)
 		realizedThisFill := fill.USD - (pos.SizeUSD * exit.Fraction * (pos.RemainingPct / 100))
 		pos.RealizedUSD += realizedThisFill
 
-		// Update remaining
 		closedFrac := exit.Fraction * (pos.RemainingPct / 100)
 		pos.RemainingPct -= closedFrac * 100
 
 		if exit.Fraction >= 1.0 || pos.RemainingPct <= 0.01 {
-			// Full close
 			pos.RemainingPct = 0
 			pos.Status = PositionClosed
 			pos.ExitReason = exit.Reason
 
-			duration := time.Since(pos.EntryTime)
+			buyTx, sellTx := "", ""
+			for _, f := range pos.Fills {
+				if f.Action == "BUY" && buyTx == "" {
+					buyTx = f.TxHash
+				}
+				if f.Action == "SELL" {
+					sellTx = f.TxHash
+				}
+			}
+
 			log := &TradeLog{
 				ID:          pos.ID,
 				PairAddress: pos.PairAddress,
@@ -137,57 +133,40 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 				SizeUSD:     pos.SizeUSD,
 				PnLPercent:  pos.PnLPercent,
 				PnLUSD:      pos.RealizedUSD,
-				Duration:    fmtDuration(duration),
+				Duration:    fmtDuration(time.Since(pos.EntryTime)),
 				ExitReason:  pos.ExitReason,
-				Mode:        pos.Mode,
+				BuyTxHash:   buyTx,
+				SellTxHash:  sellTx,
 				OpenTime:    pos.EntryTime,
 				CloseTime:   time.Now(),
 			}
-
 			pm.trades = append([]*TradeLog{log}, pm.trades...)
 			if len(pm.trades) > maxTradeLog {
 				pm.trades = pm.trades[:maxTradeLog]
 			}
 
-			emoji := "🔴"
+			mark := "🔴"
 			if pos.PnLPercent > 0 {
-				emoji = "🟢"
+				mark = "🟢"
 			}
-			logger.Printf("[trader] %s CLOSE %s | %s @ $%.6f | PnL: %.2f%% | reason: %s",
-				emoji, pm.exec.Mode(), pos.Symbol, fill.Price, pos.PnLPercent, exit.Reason)
+			logger.Printf("[trader] %s CLOSE %s @ $%.6f | pnl=%.2f%% | %s | tx=%s",
+				mark, t.Symbol, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
 
 		} else {
-			// Partial close
 			if exit.Fraction == pm.cfg.TP1SellFrac {
 				pos.TP1Hit = true
 			}
-			logger.Printf("[trader] ✂️  PARTIAL %s | %s | sold %.0f%% @ $%.6f | PnL: %.2f%% | reason: %s",
-				pm.exec.Mode(), pos.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason)
+			logger.Printf("[trader] ✂️  PARTIAL %s | sold %.0f%% @ $%.6f | pnl=%.2f%% | %s | tx=%s",
+				t.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
 		}
 	}
 }
 
-// OpenPositions returns all currently open positions, newest first.
-func (pm *PositionManager) OpenPositions() []*Position {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	var list []*Position
-	for _, p := range pm.positions {
-		if p.Status == PositionOpen {
-			list = append(list, p)
-		}
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].EntryTime.After(list[j].EntryTime)
-	})
-	return list
-}
-
-// AllPositions returns all positions (open + closed), newest first.
+// AllPositions returns all positions, newest first.
 func (pm *PositionManager) AllPositions() []*Position {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	var list []*Position
+	list := make([]*Position, 0, len(pm.positions))
 	for _, p := range pm.positions {
 		list = append(list, p)
 	}
@@ -212,37 +191,32 @@ func (pm *PositionManager) Stats() TradingStats {
 	defer pm.mu.RUnlock()
 
 	st := TradingStats{
-		Mode:      pm.exec.Mode(),
-		OpenTrades: pm.openCount(),
-		MaxTrades:  pm.cfg.MaxOpenTrades,
-		TotalTrades: len(pm.trades),
-		BestTradePct:  -999,
-		WorstTradePct: 999,
+		OpenTrades:    pm.openCount(),
+		MaxTrades:     pm.cfg.MaxOpenTrades,
+		TotalTrades:   len(pm.trades),
+		BestTradePct:  0,
+		WorstTradePct: 0,
 	}
+	first := true
 	for _, t := range pm.trades {
 		st.TotalPnLUSD += t.PnLUSD
-		st.TotalPnLPct += t.PnLPercent
+		st.AvgPnLPct += t.PnLPercent
 		if t.PnLPercent > 0 {
 			st.WinCount++
 		} else {
 			st.LossCount++
 		}
-		if t.PnLPercent > st.BestTradePct {
+		if first || t.PnLPercent > st.BestTradePct {
 			st.BestTradePct = t.PnLPercent
 		}
-		if t.PnLPercent < st.WorstTradePct {
+		if first || t.PnLPercent < st.WorstTradePct {
 			st.WorstTradePct = t.PnLPercent
 		}
+		first = false
 	}
 	if st.TotalTrades > 0 {
 		st.WinRate = float64(st.WinCount) / float64(st.TotalTrades) * 100
-		st.TotalPnLPct = st.TotalPnLPct / float64(st.TotalTrades)
-	}
-	if st.BestTradePct == -999 {
-		st.BestTradePct = 0
-	}
-	if st.WorstTradePct == 999 {
-		st.WorstTradePct = 0
+		st.AvgPnLPct = st.AvgPnLPct / float64(st.TotalTrades)
 	}
 	return st
 }
@@ -250,16 +224,16 @@ func (pm *PositionManager) Stats() TradingStats {
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func (pm *PositionManager) openCount() int {
-	count := 0
+	n := 0
 	for _, p := range pm.positions {
 		if p.Status == PositionOpen {
-			count++
+			n++
 		}
 	}
-	return count
+	return n
 }
 
-func (pm *PositionManager) hasOpenPositionFor(pairAddress string) bool {
+func (pm *PositionManager) hasOpenFor(pairAddress string) bool {
 	for _, p := range pm.positions {
 		if p.PairAddress == pairAddress && p.Status == PositionOpen {
 			return true
@@ -281,5 +255,7 @@ func fmtDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%.0fs", d.Seconds())
 	}
-	return fmt.Sprintf("%.0fm %.0fs", d.Minutes(), d.Seconds()-d.Minutes()*60)
+	m := int(d.Minutes())
+	s := int(d.Seconds()) - m*60
+	return fmt.Sprintf("%dm %ds", m, s)
 }
