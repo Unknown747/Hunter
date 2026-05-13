@@ -209,32 +209,34 @@ type StrategyConfig struct {
 }
 
 // DefaultConfig mengembalikan strategi EARLY_MOMENTUM_SCALP (normal).
-// Dioptimalkan untuk scalping meme coin listing baru (< 2 jam).
+// Dioptimalkan untuk scalping meme coin listing baru (< 90 menit).
 func DefaultConfig() *StrategyConfig {
         return &StrategyConfig{
                 // ── Entry conditions ────────────────────────────────────────────────
-                MinScore:        70,    // lebih inklusif — scorer baru sudah lebih selektif
-                MinBuyRatio:     0.62,  // minimal 62% transaksi adalah buy
-                MinVolumeSpike:  1.5,   // 1.5x dari volume pertama terlihat (realistis untuk listing baru)
-                MinLiquidityUSD: 15000, // min $15k likuiditas untuk masuk
-                MinAgeMinutes:   3,     // masuk lebih awal: 3 menit (anti-rug tetap aktif)
-                MaxAgeMinutes:   90,    // max 90 menit (masih dalam window 2 jam)
-                MaxPricePump5m:  80,    // hindari token yang sudah pump > 80% dalam 5m
+                MinScore:        70,    // score minimum — scorer memprioritaskan token baru + momentum kuat
+                MinBuyRatio:     0.62,  // minimal 62% transaksi adalah buy (tekanan beli dominan)
+                MinVolumeSpike:  2.0,   // 2x dari volume pertama terlihat — konfirmasi momentum nyata
+                MinLiquidityUSD: 15000, // min $15k — likuiditas yang cukup untuk reduce slippage
+                MinAgeMinutes:   5,     // min 5 menit — cukup waktu untuk validasi, kurangi risiko rug
+                MaxAgeMinutes:   90,    // max 90 menit — sinkron dengan filter window
+                MaxPricePump5m:  60,    // hindari top-buy: max +60% dalam 5m (scorer penalti >60%)
                 // ── Exit: Take Profit ───────────────────────────────────────────────
-                TP1Pct:      15,  // TP1: +15% → jual 50% (lebih baik dari 12%)
+                TP1Pct:      15,  // TP1: +15% → jual 50% (amankan sebagian profit)
                 TP1SellFrac: 0.5, // jual 50% saat TP1
-                TP2Pct:      35,  // TP2: +35% → tutup semua (biarkan winner berjalan)
+                TP2Pct:      35,  // TP2: +35% → tutup semua (biarkan winner berjalan ke sini)
                 // ── Exit: Stop Loss ─────────────────────────────────────────────────
-                StopLossPct:         -8, // SL lebih ketat: -8% (dari -10%)
+                StopLossPct:         -8, // SL: -8% dari entry
                 TrailingStopPct:     7,  // trailing stop 7% dari high water mark
-                TrailingActivatePct: 7,  // aktifkan trailing setelah profit 7%
+                TrailingActivatePct: 7,  // aktifkan trailing setelah profit mencapai 7%
                 // ── Exit: Emergency ─────────────────────────────────────────────────
-                EmergencyBuyRatio:   0.48, // exit darurat jika buy ratio < 48%
-                SuddenDumpThreshold: -12,  // exit darurat jika dump > 12% dalam 5m
-                VolumeDropFraction:  0.40, // exit jika volume turun > 60% dari entry
+                // Emergency: tanda distribusi/dump aktif — keluar segera tanpa tunggu SL
+                EmergencyBuyRatio:   0.48, // buyRatio collapse < 48% = distribusi besar-besaran
+                SuddenDumpThreshold: -12,  // dump > 12% dalam 5m = crash mendadak
+                VolumeDropFraction:  0.20, // exit jika volume H24 turun ke < 20% dari saat entry
+                //                            (80% drop = trading mati total, bukan sekadar melambat)
                 // ── Exit: Time ──────────────────────────────────────────────────────
-                MaxHoldMinutes:   6, // max hold 6 menit jika tidak ada profit (scalping ketat)
-                MinProfitForHold: 3, // butuh min 3% profit untuk hold lebih dari 6 menit
+                MaxHoldMinutes:   10, // max hold 10 menit jika tidak ada profit yang cukup
+                MinProfitForHold: 3,  // butuh min 3% profit untuk hold lebih dari 10 menit
                 // ── Position sizing ─────────────────────────────────────────────────
                 TradeSizeUSD:  1.0, // $1 per trade (paper mode default)
                 MaxOpenTrades: 3,   // max 3 posisi terbuka bersamaan
@@ -248,44 +250,48 @@ func ConfigForRisk(level string) *StrategyConfig {
         cfg := DefaultConfig()
         switch level {
         case "conservative":
-                // Selektif maksimal — hanya token dengan confidence tinggi
-                cfg.MinScore = 80
-                cfg.MinBuyRatio = 0.68
-                cfg.MinVolumeSpike = 2.0
-                cfg.MinLiquidityUSD = 25000
-                cfg.MinAgeMinutes = 5
-                cfg.MaxAgeMinutes = 60
-                cfg.MaxPricePump5m = 50
-                cfg.TP1Pct = 12
-                cfg.TP2Pct = 25
-                cfg.StopLossPct = -6
+                // ── Conservative: selektif maksimal, prioritas modal aman ─────────────
+                // Hanya masuk jika semua sinyal sangat kuat, exit lebih cepat
+                cfg.MinScore = 80           // score lebih tinggi = sinyal lebih kuat
+                cfg.MinBuyRatio = 0.68      // dominasi beli yang jelas
+                cfg.MinVolumeSpike = 2.5    // spike lebih besar = momentum lebih terkonfirmasi
+                cfg.MinLiquidityUSD = 25000 // likuiditas lebih tinggi = slippage lebih kecil
+                cfg.MinAgeMinutes = 7       // lebih banyak waktu validasi
+                cfg.MaxAgeMinutes = 60      // hanya fokus pada 1 jam pertama (paling volatile)
+                cfg.MaxPricePump5m = 40     // hindari token yang sudah pump
+                cfg.TP1Pct = 12             // TP1 lebih konservatif
+                cfg.TP2Pct = 30             // TP2 realistis
+                cfg.StopLossPct = -6        // SL lebih ketat
                 cfg.TrailingStopPct = 5
                 cfg.TrailingActivatePct = 5
                 cfg.EmergencyBuyRatio = 0.52
                 cfg.SuddenDumpThreshold = -10
-                cfg.VolumeDropFraction = 0.35
-                cfg.MaxHoldMinutes = 5
-                cfg.MaxOpenTrades = 2
+                cfg.VolumeDropFraction = 0.15 // exit hanya jika volume hampir mati total (>85% drop)
+                cfg.MaxHoldMinutes = 7        // exit lebih cepat jika tidak ada pergerakan
+                cfg.MinProfitForHold = 2
+                cfg.MaxOpenTrades = 2 // hanya 2 posisi bersamaan
                 cfg.RiskLevel = "conservative"
         case "aggressive":
-                // Lebih banyak peluang, risiko lebih tinggi
-                cfg.MinScore = 60
-                cfg.MinBuyRatio = 0.58
-                cfg.MinVolumeSpike = 1.2
-                cfg.MinLiquidityUSD = 10000
-                cfg.MinAgeMinutes = 2
-                cfg.MaxAgeMinutes = 110
-                cfg.MaxPricePump5m = 100
-                cfg.TP1Pct = 20
-                cfg.TP2Pct = 50
-                cfg.StopLossPct = -12
-                cfg.TrailingStopPct = 10
-                cfg.TrailingActivatePct = 10
+                // ── Aggressive: maksimalkan peluang, toleransi risiko lebih tinggi ────
+                // Masuk lebih awal, target profit lebih besar, tahan lebih lama
+                cfg.MinScore = 62           // lebih inklusif, percaya pada sinyal yang sedikit lebih lemah
+                cfg.MinBuyRatio = 0.58      // toleransi buy pressure sedikit lebih rendah
+                cfg.MinVolumeSpike = 1.5    // spike lebih kecil ok karena kita masuk lebih awal
+                cfg.MinLiquidityUSD = 10000 // toleransi likuiditas lebih rendah
+                cfg.MinAgeMinutes = 3       // masuk lebih awal (risiko lebih tinggi)
+                cfg.MaxAgeMinutes = 90      // sama dengan normal
+                cfg.MaxPricePump5m = 80     // toleransi pump lebih tinggi (momentum bisa berlanjut)
+                cfg.TP1Pct = 20             // TP1 lebih besar — tunggu momentum lebih jauh
+                cfg.TP2Pct = 60             // TP2 tinggi — biarkan winner benar-benar berlari
+                cfg.StopLossPct = -12       // SL lebih longgar — kasih ruang bernapas
+                cfg.TrailingStopPct = 10    // trailing lebih longgar
+                cfg.TrailingActivatePct = 12
                 cfg.EmergencyBuyRatio = 0.42
-                cfg.SuddenDumpThreshold = -15
-                cfg.VolumeDropFraction = 0.45
-                cfg.MaxHoldMinutes = 10
-                cfg.MaxOpenTrades = 5
+                cfg.SuddenDumpThreshold = -18
+                cfg.VolumeDropFraction = 0.25 // exit jika volume turun >75%
+                cfg.MaxHoldMinutes = 15       // hold lebih lama untuk kejar pump besar
+                cfg.MinProfitForHold = 5
+                cfg.MaxOpenTrades = 5 // 5 posisi bersamaan
                 cfg.RiskLevel = "aggressive"
         default:
                 cfg.RiskLevel = "normal"

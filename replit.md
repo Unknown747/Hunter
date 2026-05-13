@@ -78,19 +78,30 @@ Installer akan otomatis:
 
 ## Strategi Trading (EARLY_MOMENTUM_SCALP)
 
+### Mode Normal (default)
+
 **Entry (semua harus terpenuhi):**
-- score ≥ 75, buyRatio ≥ 0.65, volumeSpike ≥ 2x
+- score ≥ 70, buyRatio ≥ 0.62, volumeSpike ≥ 2x dari baseline
 - likuiditas ≥ $15k, umur token 5–90 menit
-- pricePump5m ≤ 120%
+- pricePump5m ≤ 60% (hindari top-buy)
 
 **Exit:**
-- TP1: +12% → jual 50%
-- TP2: +25% → tutup semua
-- SL: -10% → tutup semua
-- Emergency: buyRatio < 0.50, dump mendadak -15%, volume turun drastis
-- Time exit: hold ≥ 8 menit & profit < 5%
+- TP1: +15% → jual 50%
+- TP2: +35% → tutup semua
+- SL: -8% → tutup semua
+- Trailing stop: aktif setelah +7%, stop jika turun 7% dari high
+- Emergency: buyRatio < 0.48, dump mendadak -12% dalam 5m, volume turun >80%
+- Time exit: hold ≥ 10 menit & profit < 3%
 
 **Posisi:** maks 3 terbuka, $1 per trade (paper mode default)
+
+### Mode Conservative (`RISK_LEVEL=conservative`)
+- Entry: score ≥ 80, buyRatio ≥ 0.68, spike ≥ 2.5x, liq ≥ $25k, umur 7–60 menit, pump5m ≤ 40%
+- Exit: TP1 +12%, TP2 +30%, SL -6%, trailing 5%, hold max 7 menit
+
+### Mode Aggressive (`RISK_LEVEL=aggressive`)
+- Entry: score ≥ 62, buyRatio ≥ 0.58, spike ≥ 1.5x, liq ≥ $10k, umur 3–90 menit, pump5m ≤ 80%
+- Exit: TP1 +20%, TP2 +60%, SL -12%, trailing 10%, hold max 15 menit
 
 ## Mode Trading
 
