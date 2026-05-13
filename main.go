@@ -31,8 +31,9 @@ func main() {
         stats := NewStatsCounter()
         cache := NewCache()
         bl := NewBlacklist()
+        rugStore := NewRugPatternStore()
         exec := NewExecutor()
-        pm := NewPositionManager(cfg, exec, bl)
+        pm := NewPositionManager(cfg, exec, bl, rugStore)
 
         // ── Muat state dari disk (posisi + trade log + blacklist) ─────────────────
         if err := LoadState(pm, bl); err != nil {

@@ -21,15 +21,17 @@ type PositionManager struct {
         cfg       *StrategyConfig
         exec      Executor
         bl        *Blacklist
+        rugStore  *RugPatternStore
 }
 
-func NewPositionManager(cfg *StrategyConfig, exec Executor, bl *Blacklist) *PositionManager {
+func NewPositionManager(cfg *StrategyConfig, exec Executor, bl *Blacklist, rugStore *RugPatternStore) *PositionManager {
         return &PositionManager{
                 positions: make(map[string]*Position),
                 trades:    make([]*TradeLog, 0, maxTradeLog),
                 cfg:       cfg,
                 exec:      exec,
                 bl:        bl,
+                rugStore:  rugStore,
         }
 }
 
@@ -42,6 +44,12 @@ func (pm *PositionManager) OnTokenUpdate(t *TokenInfo, state *TokenState) {
 func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
         // Cek blacklist — blokir tanpa logging spam
         if pm.bl.IsBlacklisted(t.PairAddress) {
+                return
+        }
+
+        // Cek smart rug pattern — blokir jika mirip rug historis
+        if isRisky, reason := pm.rugStore.Check(t); isRisky {
+                logger.Printf("[rugpattern] 🚫 BLOKIR entry %s: %s", t.Symbol, reason)
                 return
         }
 
@@ -98,6 +106,10 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
                 Status:        PositionOpen,
                 GasCostUSD:    fill.GasUSD,
                 Fills:         []Fill{fill},
+                // Snapshot entry untuk smart rug pattern detection
+                EntryAgeMinutes:  t.PairAgeHours * 60,
+                EntryBuyRatio:    t.BuyRatio,
+                EntryPricePump5m: t.PriceChange5m,
         }
         pm.positions[pos.ID] = pos
 
@@ -145,6 +157,11 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
                         // Catat stop loss di blacklist
                         if strings.Contains(exit.Reason, "STOP LOSS") || strings.Contains(exit.Reason, "TRAILING STOP") {
                                 pm.bl.RecordStopLoss(pos.PairAddress, pos.Symbol)
+                        }
+
+                        // Simpan rug pattern untuk deteksi token serupa di masa depan
+                        if pos.PnLPercent < 0 || strings.Contains(exit.Reason, "EMERGENCY") {
+                                pm.rugStore.Record(pos, t, exit.Reason)
                         }
 
                         buyTx, sellTx := "", ""
@@ -327,6 +344,10 @@ func (pm *PositionManager) ManualBuy(t *TokenInfo) (*Position, error) {
                 Status:        PositionOpen,
                 GasCostUSD:    fill.GasUSD,
                 Fills:         []Fill{fill},
+                // Snapshot entry untuk smart rug pattern detection
+                EntryAgeMinutes:  t.PairAgeHours * 60,
+                EntryBuyRatio:    t.BuyRatio,
+                EntryPricePump5m: t.PriceChange5m,
         }
         pm.positions[pos.ID] = pos
 
@@ -534,6 +555,11 @@ func (pm *PositionManager) Stats() TradingStats {
                 st.AvgPnLPct = st.AvgPnLPct / float64(st.TotalTrades)
         }
         return st
+}
+
+// RugPatterns mengembalikan semua rug pattern tersimpan untuk API.
+func (pm *PositionManager) RugPatterns() []RugPattern {
+        return pm.rugStore.All()
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ func (a *APIServer) Routes() http.Handler {
                 mux.HandleFunc(p+"/api/trades", a.handleTrades)
                 mux.HandleFunc(p+"/api/trading-stats", a.handleTradingStats)
                 mux.HandleFunc(p+"/api/blacklist", a.handleBlacklist)
+                mux.HandleFunc(p+"/api/rug-patterns", a.handleRugPatterns)
                 mux.HandleFunc(p+"/api/close-all", a.handleCloseAll)
                 mux.HandleFunc(p+"/api/manual-buy", a.handleManualBuy)
                 mux.HandleFunc(p+"/api/manual-sell", a.handleManualSell)
@@ -65,6 +66,7 @@ func (a *APIServer) handleHot(w http.ResponseWriter, r *http.Request)          {
 func (a *APIServer) handlePositions(w http.ResponseWriter, r *http.Request)    { writeJSON(w, a.pm.AllPositions()) }
 func (a *APIServer) handleTrades(w http.ResponseWriter, r *http.Request)       { writeJSON(w, a.pm.ClosedTrades()) }
 func (a *APIServer) handleTradingStats(w http.ResponseWriter, r *http.Request) { writeJSON(w, a.pm.Stats()) }
+func (a *APIServer) handleRugPatterns(w http.ResponseWriter, r *http.Request)  { writeJSON(w, a.pm.RugPatterns()) }
 func (a *APIServer) handleBlacklist(w http.ResponseWriter, r *http.Request)    { writeJSON(w, a.bl.All()) }
 
 // handleCloseAll menutup semua posisi terbuka segera.

@@ -94,9 +94,13 @@ type Position struct {
         RealizedUSD    float64        `json:"realizedUSD"`
         ExitReason     string         `json:"exitReason,omitempty"`
         TP1Hit         bool           `json:"tp1Hit"`
-        HighWaterMark  float64        `json:"highWaterMark"`  // trailing stop — harga tertinggi yang pernah dicapai
-        GasCostUSD     float64        `json:"gasCostUSD"`     // akumulasi biaya gas
+        HighWaterMark  float64        `json:"highWaterMark"`   // trailing stop — harga tertinggi yang pernah dicapai
+        GasCostUSD     float64        `json:"gasCostUSD"`      // akumulasi biaya gas
         Fills          []Fill         `json:"fills"`
+        // Snapshot saat entry — dipakai untuk smart rug pattern detection
+        EntryAgeMinutes  float64 `json:"entryAgeMinutes"`
+        EntryBuyRatio    float64 `json:"entryBuyRatio"`
+        EntryPricePump5m float64 `json:"entryPricePump5m"`
 }
 
 // Fill mencatat setiap aksi beli atau jual parsial/penuh.
@@ -161,10 +165,11 @@ type BlacklistEntry struct {
 
 // PersistedState adalah snapshot lengkap yang disimpan ke disk.
 type PersistedState struct {
-        Positions map[string]*Position      `json:"positions"`
-        Trades    []*TradeLog               `json:"trades"`
-        Blacklist map[string]*BlacklistEntry `json:"blacklist"`
-        SavedAt   time.Time                 `json:"savedAt"`
+        Positions   map[string]*Position      `json:"positions"`
+        Trades      []*TradeLog               `json:"trades"`
+        Blacklist   map[string]*BlacklistEntry `json:"blacklist"`
+        RugPatterns []RugPattern              `json:"rugPatterns,omitempty"`
+        SavedAt     time.Time                 `json:"savedAt"`
 }
 
 // HealthStatus dikembalikan oleh GET /health.

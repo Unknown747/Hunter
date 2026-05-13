@@ -74,9 +74,12 @@ type LiveExecutor struct {
         rABI         abi.ABI
         eABI         abi.ABI
         // Cache harga ETH/USD terakhir yang valid (fallback jika RPC sedang error)
-        ethPriceMu    sync.Mutex
-        lastEthPrice  float64
+        ethPriceMu     sync.Mutex
+        lastEthPrice   float64
         lastEthPriceAt time.Time
+        // MEV protection — transaksi dikirim via private RPC (Flashbots Protect on Base)
+        privateTxClient *ethclient.Client
+        mevProtectURL   string
 }
 
 // NewLiveExecutor membuat LiveExecutor dari environment variables.
@@ -146,26 +149,44 @@ func NewLiveExecutor() (*LiveExecutor, error) {
                 return nil, fmt.Errorf("ERC20 ABI: %w", err)
         }
 
+        // ── MEV Protection via Flashbots Protect (Base mainnet) ─────────────────
+        mevURL := os.Getenv("MEV_PROTECT_RPC")
+        if mevURL == "" {
+                mevURL = "https://rpc.flashbots.net/fast" // Flashbots Protect — mendukung Base chain 8453
+        }
+        var mevClient *ethclient.Client
+        if mc, err := ethclient.Dial(mevURL); err == nil {
+                mevClient = mc
+        } else {
+                logger.Printf("[executor] ⚠️  MEV RPC tidak tersedia (%v) — pakai regular RPC", err)
+        }
+
         ethAmt := new(big.Float).Quo(new(big.Float).SetInt(sizeWei), new(big.Float).SetInt(weiPerETH))
         backupInfo := ""
         if backupURL != "" {
                 backupInfo = "  backup=" + backupURL
         }
-        logger.Printf("[executor] wallet=%s  tradeSize=%s ETH  slippage=%.1f%%  rpc=%s%s",
-                address.Hex(), ethAmt.Text('f', 6), slippagePct, primaryURL, backupInfo)
+        mevInfo := " (no MEV protect)"
+        if mevClient != nil {
+                mevInfo = "  mev=" + mevURL
+        }
+        logger.Printf("[executor] wallet=%s  tradeSize=%s ETH  slippage=%.1f%%  rpc=%s%s%s",
+                address.Hex(), ethAmt.Text('f', 6), slippagePct, primaryURL, backupInfo, mevInfo)
 
         return &LiveExecutor{
-                client:       client,
-                primaryURL:   primaryURL,
-                backupURL:    backupURL,
-                key:          key,
-                address:      address,
-                chainID:      chainID,
-                tradeSizeWei: sizeWei,
-                slippagePct:  slippagePct,
-                rABI:         rABI,
-                eABI:         eABI,
-                lastEthPrice: 3000, // seed dengan harga awal yang wajar
+                client:          client,
+                primaryURL:      primaryURL,
+                backupURL:       backupURL,
+                key:             key,
+                address:         address,
+                chainID:         chainID,
+                tradeSizeWei:    sizeWei,
+                slippagePct:     slippagePct,
+                rABI:            rABI,
+                eABI:            eABI,
+                lastEthPrice:    3000, // seed dengan harga awal yang wajar
+                privateTxClient: mevClient,
+                mevProtectURL:   mevURL,
         }, nil
 }
 
@@ -671,8 +692,22 @@ func (e *LiveExecutor) sendTx(to common.Address, value *big.Int, data []byte, ga
                 return common.Hash{}, fmt.Errorf("sign: %w", err)
         }
 
-        if err := c.SendTransaction(ctx, signed); err != nil {
-                return common.Hash{}, fmt.Errorf("broadcast: %w", err)
+        // Submit via MEV protect client jika tersedia — lindungi dari sandwich attack
+        // Jika MEV RPC gagal, fallback otomatis ke regular RPC
+        submitClient := c
+        if e.privateTxClient != nil {
+                submitClient = e.privateTxClient
+        }
+        if err := submitClient.SendTransaction(ctx, signed); err != nil {
+                if e.privateTxClient != nil {
+                        // MEV RPC gagal — fallback ke regular RPC
+                        logger.Printf("[executor] ⚠️  MEV submit gagal, fallback ke regular RPC: %v", err)
+                        if err2 := c.SendTransaction(ctx, signed); err2 != nil {
+                                return common.Hash{}, fmt.Errorf("broadcast (MEV fallback): %w", err2)
+                        }
+                } else {
+                        return common.Hash{}, fmt.Errorf("broadcast: %w", err)
+                }
         }
         return signed.Hash(), nil
 }
