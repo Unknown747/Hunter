@@ -6,7 +6,7 @@
 
 2. **Set environment variable** di VPS kamu:
    ```bash
-   export LIVE_TRADING=true
+   # Cukup set PRIVATE_KEY — engine otomatis masuk mode live trading
    export PRIVATE_KEY=hex_private_key_tanpa_prefix_0x
    export BASE_RPC_URL=https://mainnet.base.org   # atau Alchemy/Infura untuk lebih andal
    export TRADE_SIZE_ETH=0.001                    # ukuran trade per posisi (dalam ETH)
@@ -19,7 +19,7 @@
 
 ## Cara Kerja
 
-Saat `LIVE_TRADING=true`:
+Saat `PRIVATE_KEY` di-set:
 1. Engine mendeteksi token yang memenuhi syarat melalui strategy engine
 2. Query `getAmountsOut` ke router untuk mendapatkan estimasi output
 3. Hitung `amountOutMin` = estimasi output × (1 - SLIPPAGE_PCT/100) → **proteksi sandwich attack**
@@ -64,7 +64,6 @@ cp .env.example .env
 nano .env
 
 # 2. Isi nilai berikut di .env:
-#    LIVE_TRADING=true
 #    PRIVATE_KEY=xxxxx
 #    BASE_RPC_URL=https://mainnet.base.org
 

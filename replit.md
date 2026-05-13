@@ -95,13 +95,14 @@ Installer akan otomatis:
 ## Mode Trading
 
 ```bash
-# Paper trading (default, aman untuk testing)
+# Paper trading (default, aman untuk testing — tanpa PRIVATE_KEY)
 PORT=8080 ./meme-hunter
 
-# Live trading on-chain (Base + Aerodrome)
-LIVE_TRADING=true \
+# Live trading on-chain (Base + Aerodrome — cukup set PRIVATE_KEY)
 PRIVATE_KEY=your_hex_key \
 BASE_RPC_URL=https://mainnet.base.org \
+TRADE_SIZE_ETH=0.001 \
+SLIPPAGE_PCT=5.0 \
 PORT=8080 ./meme-hunter
 ```
 

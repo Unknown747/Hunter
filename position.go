@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"math/rand"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -10,7 +12,7 @@ import (
 
 const maxTradeLog = 500
 
-// PositionManager tracks all open and closed positions.
+// PositionManager melacak semua posisi terbuka dan tertutup.
 type PositionManager struct {
 	mu        sync.RWMutex
 	positions map[string]*Position
@@ -28,13 +30,14 @@ func NewPositionManager(cfg *StrategyConfig, exec Executor) *PositionManager {
 	}
 }
 
-// OnTokenUpdate is called from the pipeline for every token update.
+// OnTokenUpdate dipanggil dari pipeline untuk setiap update token.
 func (pm *PositionManager) OnTokenUpdate(t *TokenInfo, state *TokenState) {
 	pm.checkExits(t)
 	pm.checkEntry(t, state)
 }
 
 func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
+	// Cek awal dengan read lock (cepat)
 	pm.mu.RLock()
 	open := pm.openCount()
 	already := pm.hasOpenFor(t.PairAddress)
@@ -49,9 +52,21 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 		return
 	}
 
+	// exec.Buy() adalah operasi jaringan yang lambat — dilakukan di luar lock
 	fill, err := pm.exec.Buy(t, pm.cfg.TradeSizeUSD)
 	if err != nil {
-		logger.Printf("[trader] BUY failed %s: %v", t.Symbol, err)
+		logger.Printf("[trader] BUY gagal %s: %v", t.Symbol, err)
+		return
+	}
+
+	// Re-check di bawah write lock sebelum menyimpan posisi.
+	// Penting: cegah race condition jika goroutine lain juga berhasil buy
+	// di antara read lock dan write lock di atas.
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if pm.hasOpenFor(t.PairAddress) || pm.openCount() >= pm.cfg.MaxOpenTrades {
+		logger.Printf("[trader] ⚠️  DUPLIKAT/PENUH — posisi %s dibatalkan setelah buy", t.Symbol)
 		return
 	}
 
@@ -69,12 +84,9 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 		Status:       PositionOpen,
 		Fills:        []Fill{fill},
 	}
-
-	pm.mu.Lock()
 	pm.positions[pos.ID] = pos
-	pm.mu.Unlock()
 
-	logger.Printf("[trader] ✅ OPEN %s @ $%.6f | score=%.1f | %s | tx=%s",
+	logger.Printf("[trader] ✅ BUKA %s @ $%.6f | score=%.1f | %s | tx=%s",
 		t.Symbol, fill.Price, t.Score, result.Reason, fill.TxHash)
 }
 
@@ -97,7 +109,7 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 
 		fill, err := pm.exec.Sell(t, pos, exit.Fraction, exit.Reason)
 		if err != nil {
-			logger.Printf("[trader] SELL failed %s: %v", t.Symbol, err)
+			logger.Printf("[trader] SELL gagal %s: %v", t.Symbol, err)
 			continue
 		}
 		fill.Reason = exit.Reason
@@ -149,20 +161,21 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
 			if pos.PnLPercent > 0 {
 				mark = "🟢"
 			}
-			logger.Printf("[trader] %s CLOSE %s @ $%.6f | pnl=%.2f%% | %s | tx=%s",
+			logger.Printf("[trader] %s TUTUP %s @ $%.6f | pnl=%.2f%% | %s | tx=%s",
 				mark, t.Symbol, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
 
 		} else {
-			if exit.Fraction == pm.cfg.TP1SellFrac {
+			// Partial close — tandai TP1 menggunakan perbandingan toleransi float
+			if math.Abs(exit.Fraction-pm.cfg.TP1SellFrac) < 1e-9 {
 				pos.TP1Hit = true
 			}
-			logger.Printf("[trader] ✂️  PARTIAL %s | sold %.0f%% @ $%.6f | pnl=%.2f%% | %s | tx=%s",
+			logger.Printf("[trader] ✂️  PARSIAL %s | jual %.0f%% @ $%.6f | pnl=%.2f%% | %s | tx=%s",
 				t.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason, fill.TxHash)
 		}
 	}
 }
 
-// AllPositions returns all positions, newest first.
+// AllPositions mengembalikan semua posisi, terbaru di depan.
 func (pm *PositionManager) AllPositions() []*Position {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -176,7 +189,7 @@ func (pm *PositionManager) AllPositions() []*Position {
 	return list
 }
 
-// ClosedTrades returns the completed trade log.
+// ClosedTrades mengembalikan log trade yang sudah selesai.
 func (pm *PositionManager) ClosedTrades() []*TradeLog {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -185,7 +198,7 @@ func (pm *PositionManager) ClosedTrades() []*TradeLog {
 	return cp
 }
 
-// Stats returns aggregated trading statistics.
+// Stats mengembalikan statistik trading secara agregat.
 func (pm *PositionManager) Stats() TradingStats {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -242,18 +255,19 @@ func (pm *PositionManager) hasOpenFor(pairAddress string) bool {
 	return false
 }
 
+// newID menghasilkan ID 8-karakter hex menggunakan crypto/rand.
 func newID() string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback sangat jarang terjadi — gunakan timestamp sebagai ID
+		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
-	return string(b)
+	return hex.EncodeToString(b)
 }
 
 func fmtDuration(d time.Duration) string {
 	if d < time.Minute {
-		return fmt.Sprintf("%.0fs", d.Seconds())
+		return fmt.Sprintf("%.0fd", d.Seconds())
 	}
 	m := int(d.Minutes())
 	s := int(d.Seconds()) - m*60

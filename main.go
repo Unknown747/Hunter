@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 var logger = log.New(os.Stdout, "[hunter] ", log.LstdFlags)
@@ -17,13 +19,20 @@ func main() {
 	stats := NewStatsCounter()
 	cache := NewCache()
 	cfg := DefaultConfig()
-
-	// NewExecutor fatals with a clear message if PRIVATE_KEY is not set
 	exec := NewExecutor()
 	pm := NewPositionManager(cfg, exec)
 
 	rawPairs := make(chan []DexPair, 2)
+
+	// stop ditutup saat menerima sinyal OS untuk graceful shutdown
 	stop := make(chan struct{})
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		logger.Println("Sinyal shutdown diterima, menghentikan goroutine...")
+		close(stop)
+	}()
 
 	fetcher := NewFetcher(rawPairs)
 	go fetcher.Run(stop, stats)

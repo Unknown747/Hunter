@@ -119,11 +119,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
 # ─── Port ─────────────────────────────────────────────────────────────────────
 PORT=${PORT}
 
-# ─── Live Trading (hapus komentar untuk mengaktifkan) ─────────────────────────
-# LIVE_TRADING=true
+# ─── Live Trading ─────────────────────────────────────────────────────────────
+# Catatan: cukup set PRIVATE_KEY untuk mengaktifkan live trading
 # PRIVATE_KEY=hex_private_key_tanpa_0x
 # BASE_RPC_URL=https://mainnet.base.org
 # TRADE_SIZE_ETH=0.001
+# SLIPPAGE_PCT=5.0
 EOF
     chmod 600 "$ENV_FILE"
     chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
@@ -190,6 +191,6 @@ echo -e "  Config  : nano ${ENV_FILE}  (lalu restart)"
 echo ""
 echo -e "${YELLOW}Untuk mengaktifkan live trading:${NC}"
 echo -e "  1. Edit ${ENV_FILE}"
-echo -e "  2. Hapus komentar LIVE_TRADING, PRIVATE_KEY, BASE_RPC_URL"
+echo -e "  2. Hapus komentar PRIVATE_KEY, BASE_RPC_URL, TRADE_SIZE_ETH"
 echo -e "  3. systemctl restart ${SERVICE_NAME}"
 echo ""
