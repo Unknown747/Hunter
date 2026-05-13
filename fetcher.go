@@ -28,8 +28,8 @@ const (
         // Token profiles terbaru dari DexScreener — sumber listing baru
         urlTokenProfiles = "https://api.dexscreener.com/token-profiles/latest/v1"
 
-        // Batas umur pair yang masih dianggap "baru" untuk filter profil (2 jam)
-        maxNewPairAgeHours = 2.0
+        // Batas umur pair yang masih dianggap "baru" untuk filter profil (45 menit — sinkron dengan filter.go)
+        maxNewPairAgeHours = 0.75
 )
 
 // memeSearchKeywords adalah daftar kata kunci yang dirotasi setiap siklus.

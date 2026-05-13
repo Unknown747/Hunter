@@ -218,7 +218,7 @@ func DefaultConfig() *StrategyConfig {
                 MinVolumeSpike:  2.0,   // 2x dari volume pertama terlihat — konfirmasi momentum nyata
                 MinLiquidityUSD: 15000, // min $15k — likuiditas yang cukup untuk reduce slippage
                 MinAgeMinutes:   5,     // min 5 menit — cukup waktu untuk validasi, kurangi risiko rug
-                MaxAgeMinutes:   90,    // max 90 menit — sinkron dengan filter window
+                MaxAgeMinutes:   30,    // max 30 menit — meme coin pump biasanya selesai dalam 30 menit pertama
                 MaxPricePump5m:  60,    // hindari top-buy: max +60% dalam 5m (scorer penalti >60%)
                 // ── Exit: Take Profit ───────────────────────────────────────────────
                 TP1Pct:      15,  // TP1: +15% → jual 50% (amankan sebagian profit)
@@ -257,7 +257,7 @@ func ConfigForRisk(level string) *StrategyConfig {
                 cfg.MinVolumeSpike = 2.5    // spike lebih besar = momentum lebih terkonfirmasi
                 cfg.MinLiquidityUSD = 25000 // likuiditas lebih tinggi = slippage lebih kecil
                 cfg.MinAgeMinutes = 7       // lebih banyak waktu validasi
-                cfg.MaxAgeMinutes = 60      // hanya fokus pada 1 jam pertama (paling volatile)
+                cfg.MaxAgeMinutes = 20      // hanya fokus pada 20 menit pertama (paling volatile untuk conservative)
                 cfg.MaxPricePump5m = 40     // hindari token yang sudah pump
                 cfg.TP1Pct = 12             // TP1 lebih konservatif
                 cfg.TP2Pct = 22             // TP2 realistis dalam 12 menit (diturunkan dari 30)
@@ -279,7 +279,7 @@ func ConfigForRisk(level string) *StrategyConfig {
                 cfg.MinVolumeSpike = 1.5    // spike lebih kecil ok karena kita masuk lebih awal
                 cfg.MinLiquidityUSD = 10000 // toleransi likuiditas lebih rendah
                 cfg.MinAgeMinutes = 3       // masuk lebih awal (risiko lebih tinggi)
-                cfg.MaxAgeMinutes = 90      // sama dengan normal
+                cfg.MaxAgeMinutes = 45      // max 45 menit untuk aggressive mode
                 cfg.MaxPricePump5m = 80     // toleransi pump lebih tinggi (momentum bisa berlanjut)
                 cfg.TP1Pct = 20             // TP1 lebih besar — tunggu momentum lebih jauh
                 cfg.TP2Pct = 50             // TP2 realistis dalam 25 menit (diturunkan dari 60)

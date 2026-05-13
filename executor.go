@@ -379,10 +379,19 @@ func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
         if expectedOut.Sign() > 0 {
                 logger.Printf("[executor] BUY quote %s: expect %s tokens, min %s (slippage %.1f%%)",
                         t.Symbol, expectedOut.String(), amountOutMin.String(), e.slippagePct)
-
         } else {
-                logger.Printf("[executor] ⚠️  BUY %s: semua route gagal estimasi, lanjut dengan amountOutMin=0", t.Symbol)
+                // SAFETY: Jangan eksekusi swap tanpa perlindungan slippage — bisa kehilangan semua ETH.
+                // Ini terjadi jika: pair belum punya likuiditas cukup, token tidak tersedia di route manapun,
+                // atau RPC sedang bermasalah. Batalkan BUY daripada rugi besar.
+                return Fill{}, fmt.Errorf("BUY %s DIBATALKAN: semua route (WETH→TOKEN, WETH→USDC→TOKEN) gagal estimasi harga — pair mungkin belum punya likuiditas, coba lagi nanti", t.Symbol)
         }
+
+        // Log detail lengkap sebelum submit — SELALU log ini agar bisa diaudit koin mana yang dibeli
+        ethAmt := new(big.Float).Quo(new(big.Float).SetInt(e.tradeSizeWei),
+                new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)))
+        logger.Printf("[executor] 🚀 SUBMIT BUY  symbol=%s  tokenAddr=%s  pairAddr=%s  age=%.0fm  price=$%.6f  size=%s ETH  slippage=%.1f%%",
+                t.Symbol, t.TokenAddress, t.PairAddress,
+                t.PairAgeHours*60, t.Price, ethAmt.Text('f', 6), e.slippagePct)
 
         deadline := big.NewInt(time.Now().Add(60 * time.Second).Unix())
         data, err := e.rABI.Pack("swapExactETHForTokens", amountOutMin, routes, e.address, deadline)
@@ -406,8 +415,8 @@ func (e *LiveExecutor) Buy(t *TokenInfo, _ float64) (Fill, error) {
         gasUSD := e.calcGasUSD(receipt)
         tradeUSD := weiToFloat64(e.tradeSizeWei) * e.ethPriceUSD()
 
-        logger.Printf("[executor] ✅ BUY tx=%s  token=%s  price=$%.6f  gas=$%.4f",
-                txHash.Hex(), t.Symbol, t.Price, gasUSD)
+        logger.Printf("[executor] ✅ BUY CONFIRMED  tx=%s  symbol=%s  tokenAddr=%s  price=$%.6f  tradeUSD=$%.4f  gas=$%.4f",
+                txHash.Hex(), t.Symbol, t.TokenAddress, t.Price, tradeUSD, gasUSD)
 
         return Fill{
                 Action:    "BUY",

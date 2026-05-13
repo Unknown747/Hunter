@@ -31,9 +31,9 @@ func filterWithResult(t *TokenInfo) FilterResult {
         if t.PairAgeHours == 0 {
                 return FilterResult{false, "umur=0 (pairCreatedAt tidak ada)"}
         }
-        // Hanya track token < 90 menit (sinkron dengan MaxAgeMinutes di strategi)
-        if t.PairAgeHours > 1.5 {
-                return FilterResult{false, fmt.Sprintf("terlalu tua: %.1fj (max 1.5j/90m)", t.PairAgeHours)}
+        // Hanya track token < 45 menit (sedikit di atas MaxAgeMinutes 30m agar posisi yang ada tetap bisa diupdate)
+        if t.PairAgeHours > 0.75 {
+                return FilterResult{false, fmt.Sprintf("terlalu tua: %.0fm (max 45m)", t.PairAgeHours*60)}
         }
 
         ageMin := t.PairAgeHours * 60
