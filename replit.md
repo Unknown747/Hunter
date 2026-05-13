@@ -1,45 +1,114 @@
-# [Project name]
+# Base Meme Coin Hunter Engine
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Real-time monitoring engine that detects early meme coin opportunities on Base network (Aerodrome DEX) using a channel-based Go pipeline.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `cd hunter && go run .` — run the hunter engine (port 8080 on VPS, 8099 on Replit)
+- `cd hunter && go build -o hunter-engine . && ./hunter-engine` — build & run binary
+- Dashboard: http://localhost:8080/ (VPS) or /hunter/ (Replit preview)
+- Required env: `PORT` — HTTP port (default: 8080)
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Go 1.21, net/http (no framework)
+- Event-driven channel pipeline
+- DexScreener API (search endpoint)
+- TailwindCSS CDN + Vanilla JS dashboard
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `hunter/` — Go source (all pipeline stages)
+  - `main.go` — entry point + pipeline orchestration
+  - `fetcher.go` — DexScreener HTTP ingestion
+  - `normalizer.go` — raw → TokenInfo struct
+  - `filter.go` — 3-layer filter engine
+  - `scorer.go` — 0-100 weighted scoring
+  - `signal.go` — NEW_LISTING / MOMENTUM / BREAKOUT detection
+  - `cache.go` — in-memory state with TTL cleanup
+  - `api.go` — REST endpoints + CORS
+  - `stats.go` — uptime/cycle counters
+  - `types.go` — shared structs
+  - `static/index.html` — real-time dashboard (dark, tabbed UI)
+  - `go.mod` — Go module
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Channel-based pipeline: Fetcher → rawPairs channel → single pipeline goroutine (Normalizer+Filter+Scorer+Signal+Cache) — avoids locking overhead on the hot path
+- DexScreener search endpoint (`?q=aerodrome`) is the only working bulk query; `/pairs/base` returns 404
+- Adaptive polling: 3s when >200 pairs found, 8s otherwise — reduces load on low-activity periods
+- In-memory cache only (no DB) — optimized for low-RAM VPS (< 50MB at steady state)
+- Both `/hunter/*` and bare `/*` paths served — works behind Replit proxy and standalone on VPS
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Tracks Base/Aerodrome pairs in real-time via DexScreener
+- Filters: liquidity ≥ $8k, volume24h ≥ $12k, age ≤ 12h, anti-rug heuristics
+- Scores 0–100: Early Age (25%) + Volume (25%) + Buy Pressure (20%) + Liquidity (15%) + Price Trend (15%)
+- Signal detection: NEW_LISTING, MOMENTUM, BREAKOUT with 5-min cooldown
+- Dashboard tabs: All Tokens / Gems / Signals / Top Movers / Hot Pairs
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Golang backend, no heavy frameworks
+- Optimized for 1 core / 1GB RAM VPS
+- Must be upgradeable to on-chain listener
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- DexScreener search API has rate limits — keep polling interval ≥ 3s
+- Port 8080 is used by Replit's API server; use PORT=8099 on Replit
+- Pairs with pairCreatedAt=0 get ageHours=0 (treated as brand new — slight false positive risk)
 
-## Pointers
+## VPS Deployment
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+```bash
+# 1. Install Go
+wget https://go.dev/dl/go1.21.13.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.21.13.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && source ~/.bashrc
+
+# 2. Clone / upload the hunter directory
+git clone <your-repo> && cd <repo>/hunter
+# or: scp -r hunter/ user@vps:~/hunter/
+
+# 3. Build binary
+go build -o hunter-engine .
+
+# 4. Run (as service with systemd)
+sudo tee /etc/systemd/system/hunter.service > /dev/null <<EOF
+[Unit]
+Description=Base Meme Coin Hunter
+After=network.target
+
+[Service]
+ExecStart=/home/ubuntu/hunter/hunter-engine
+WorkingDirectory=/home/ubuntu/hunter
+Restart=always
+RestartSec=5
+Environment=PORT=8080
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable hunter
+sudo systemctl start hunter
+sudo systemctl status hunter
+
+# 5. Access dashboard
+# http://YOUR_VPS_IP:8080/
+```
+
+## API Reference
+
+| Endpoint | Description |
+|---|---|
+| GET /api/tokens | All tracked tokens (sorted by score) |
+| GET /api/gems | Only GEM-category tokens (score ≥ 75) |
+| GET /api/top | Top 20 tokens by score |
+| GET /api/signals | Signal log (NEW_LISTING, MOMENTUM, BREAKOUT) |
+| GET /api/stats | Engine stats (uptime, cycle count, poll interval) |
+| GET /api/movers | Top 10 by 5-min price change |
+| GET /api/hot | Top 10 by volume/liquidity ratio |

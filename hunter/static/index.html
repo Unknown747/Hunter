@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Base Meme Coin Hunter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --bg: #0a0b0f; --card: #111318; --border: #1e2130; --accent: #6366f1; }
+    body { background: var(--bg); font-family: 'Inter', system-ui, sans-serif; }
+    .tab-active { border-bottom: 2px solid #6366f1; color: #a5b4fc; }
+    .tab { color: #6b7280; border-bottom: 2px solid transparent; }
+    .gem { border-left: 3px solid #10b981; }
+    .strong { border-left: 3px solid #f59e0b; }
+    .watchlist { border-left: 3px solid #374151; }
+    .badge-gem { background: #065f46; color: #6ee7b7; }
+    .badge-strong { background: #78350f; color: #fde68a; }
+    .badge-watchlist { background: #1f2937; color: #9ca3af; }
+    .badge-signal { background: #312e81; color: #c7d2fe; }
+    .sig-NEW_LISTING { background: #14532d; color: #86efac; }
+    .sig-MOMENTUM { background: #7c2d12; color: #fdba74; }
+    .sig-BREAKOUT { background: #1e1b4b; color: #a5b4fc; }
+    .row:hover { background: #151820; }
+    .pulse { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.5 } }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0a0b0f; }
+    ::-webkit-scrollbar-thumb { background: #1e2130; border-radius: 4px; }
+  </style>
+</head>
+<body class="text-gray-200 min-h-screen">
+
+<!-- Header -->
+<div class="border-b border-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10" style="background:var(--bg)">
+  <div class="flex items-center gap-3">
+    <div class="w-2 h-2 rounded-full bg-emerald-400 pulse"></div>
+    <span class="font-semibold text-white tracking-tight">Base Meme Coin Hunter</span>
+    <span class="text-xs text-gray-500 ml-1">Aerodrome · Base Network</span>
+  </div>
+  <div class="flex items-center gap-6 text-sm">
+    <div class="flex gap-4" id="header-stats">
+      <span class="text-gray-500">loading...</span>
+    </div>
+    <div class="text-xs text-gray-600" id="last-update">—</div>
+  </div>
+</div>
+
+<!-- Tabs + Content -->
+<div class="max-w-7xl mx-auto px-4 py-4">
+
+  <!-- Tabs -->
+  <div class="flex gap-1 mb-5 border-b border-gray-800">
+    <button onclick="setTab('all')" id="tab-all" class="tab tab-active px-4 py-2 text-sm font-medium transition-colors">All Tokens</button>
+    <button onclick="setTab('gems')" id="tab-gems" class="tab px-4 py-2 text-sm font-medium transition-colors">Gems</button>
+    <button onclick="setTab('signals')" id="tab-signals" class="tab px-4 py-2 text-sm font-medium transition-colors">Signals</button>
+    <button onclick="setTab('movers')" id="tab-movers" class="tab px-4 py-2 text-sm font-medium transition-colors">Top Movers</button>
+    <button onclick="setTab('hot')" id="tab-hot" class="tab px-4 py-2 text-sm font-medium transition-colors">Hot Pairs</button>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-5 gap-3 mb-5" id="stats-bar">
+    <div class="rounded-lg p-3 text-center" style="background:var(--card); border:1px solid var(--border)">
+      <div class="text-xl font-bold text-white" id="s-tracked">—</div>
+      <div class="text-xs text-gray-500 mt-0.5">Tracked</div>
+    </div>
+    <div class="rounded-lg p-3 text-center" style="background:var(--card); border:1px solid var(--border)">
+      <div class="text-xl font-bold text-emerald-400" id="s-gems">—</div>
+      <div class="text-xs text-gray-500 mt-0.5">Gems</div>
+    </div>
+    <div class="rounded-lg p-3 text-center" style="background:var(--card); border:1px solid var(--border)">
+      <div class="text-xl font-bold text-amber-400" id="s-strong">—</div>
+      <div class="text-xs text-gray-500 mt-0.5">Strong</div>
+    </div>
+    <div class="rounded-lg p-3 text-center" style="background:var(--card); border:1px solid var(--border)">
+      <div class="text-xl font-bold text-indigo-400" id="s-signals">—</div>
+      <div class="text-xs text-gray-500 mt-0.5">Signals</div>
+    </div>
+    <div class="rounded-lg p-3 text-center" style="background:var(--card); border:1px solid var(--border)">
+      <div class="text-sm font-semibold text-gray-300" id="s-uptime">—</div>
+      <div class="text-xs text-gray-500 mt-0.5">Uptime</div>
+    </div>
+  </div>
+
+  <!-- Token table -->
+  <div id="view-all" class="view-panel">
+    <div id="token-table"></div>
+  </div>
+
+  <div id="view-gems" class="view-panel hidden">
+    <div id="gems-table"></div>
+  </div>
+
+  <div id="view-signals" class="view-panel hidden">
+    <div id="signals-list"></div>
+  </div>
+
+  <div id="view-movers" class="view-panel hidden">
+    <div id="movers-table"></div>
+  </div>
+
+  <div id="view-hot" class="view-panel hidden">
+    <div id="hot-table"></div>
+  </div>
+</div>
+
+<script>
+let currentTab = 'all';
+// Auto-detect prefix: if served via /hunter proxy, use that prefix
+const BASE_URL = window.location.pathname.startsWith('/hunter') ? '/hunter' : '';
+
+function setTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.view-panel').forEach(el => el.classList.add('hidden'));
+  document.getElementById('view-' + tab).classList.remove('hidden');
+  document.querySelectorAll('[id^="tab-"]').forEach(el => {
+    el.classList.remove('tab-active');
+    el.classList.add('tab');
+  });
+  const btn = document.getElementById('tab-' + tab);
+  btn.classList.add('tab-active');
+  btn.classList.remove('tab');
+  refresh();
+}
+
+function fmt(n, dec=2) {
+  if (n === undefined || n === null) return '—';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(dec);
+}
+
+function fmtAge(h) {
+  if (h < 1) return Math.round(h * 60) + 'm';
+  return h.toFixed(1) + 'h';
+}
+
+function fmtPct(v) {
+  if (v === undefined || v === null) return '—';
+  const color = v >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const sign = v >= 0 ? '+' : '';
+  return `<span class="${color}">${sign}${v.toFixed(2)}%</span>`;
+}
+
+function scoreBar(score) {
+  const w = Math.min(100, Math.round(score));
+  let color = '#374151';
+  if (score >= 75) color = '#10b981';
+  else if (score >= 50) color = '#f59e0b';
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-1.5 rounded-full bg-gray-800">
+      <div class="h-1.5 rounded-full transition-all" style="width:${w}%;background:${color}"></div>
+    </div>
+    <span class="text-xs font-mono w-8 text-right text-gray-300">${score.toFixed(0)}</span>
+  </div>`;
+}
+
+function categoryBadge(cat) {
+  const map = { GEM: 'badge-gem', STRONG: 'badge-strong', WATCHLIST: 'badge-watchlist' };
+  return `<span class="text-xs px-2 py-0.5 rounded font-semibold ${map[cat]||'badge-watchlist'}">${cat}</span>`;
+}
+
+function signalBadges(sigs) {
+  if (!sigs || sigs.length === 0) return '';
+  return sigs.map(s => `<span class="text-xs px-1.5 py-0.5 rounded badge-signal">${s.replace('_', ' ')}</span>`).join(' ');
+}
+
+function tokenRows(tokens) {
+  if (!tokens || tokens.length === 0) {
+    return `<div class="text-center py-16 text-gray-600">No tokens match current filters. Waiting for data...</div>`;
+  }
+  const header = `
+  <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xs text-gray-500 uppercase tracking-wider" style="background:var(--card);border-bottom:1px solid var(--border)">
+          <th class="px-4 py-3 text-left">Token</th>
+          <th class="px-4 py-3 text-left">Score</th>
+          <th class="px-4 py-3 text-right">Price</th>
+          <th class="px-4 py-3 text-right">Liquidity</th>
+          <th class="px-4 py-3 text-right">Volume 24h</th>
+          <th class="px-4 py-3 text-right">Age</th>
+          <th class="px-4 py-3 text-right">5m</th>
+          <th class="px-4 py-3 text-right">1h</th>
+          <th class="px-4 py-3 text-right">Buys/Sells</th>
+          <th class="px-4 py-3 text-left">Status</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  const rows = tokens.map(t => {
+    const catClass = t.category === 'GEM' ? 'gem' : t.category === 'STRONG' ? 'strong' : 'watchlist';
+    return `<tr class="row border-b border-gray-800/60 ${catClass} transition-colors cursor-pointer" onclick="window.open('https://dexscreener.com/base/${t.pairAddress}','_blank')">
+      <td class="px-4 py-3">
+        <div class="flex flex-col">
+          <span class="font-semibold text-white">${t.symbol || '?'}</span>
+          <span class="text-xs text-gray-500">${(t.name||'').slice(0,20)}</span>
+        </div>
+      </td>
+      <td class="px-4 py-3 w-36">${scoreBar(t.score)}</td>
+      <td class="px-4 py-3 text-right font-mono text-gray-300 text-xs">${t.price > 0 ? '$'+t.price.toPrecision(4) : '—'}</td>
+      <td class="px-4 py-3 text-right text-gray-300">${fmt(t.liquidity)}</td>
+      <td class="px-4 py-3 text-right text-gray-300">${fmt(t.volume24h)}</td>
+      <td class="px-4 py-3 text-right text-gray-400">${fmtAge(t.pairAgeHours)}</td>
+      <td class="px-4 py-3 text-right">${fmtPct(t.priceChange5m)}</td>
+      <td class="px-4 py-3 text-right">${fmtPct(t.priceChange1h)}</td>
+      <td class="px-4 py-3 text-right text-xs">
+        <span class="text-emerald-400">${t.txnsBuy}</span>
+        <span class="text-gray-600">/</span>
+        <span class="text-red-400">${t.txnsSell}</span>
+      </td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-1">
+          ${categoryBadge(t.category)}
+          ${signalBadges(t.signals)}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return header + rows + '</tbody></table></div>';
+}
+
+function renderSignals(signals) {
+  if (!signals || signals.length === 0) {
+    return `<div class="text-center py-16 text-gray-600">No signals detected yet. Monitoring...</div>`;
+  }
+  const sigTypeColor = { NEW_LISTING: 'sig-NEW_LISTING', MOMENTUM: 'sig-MOMENTUM', BREAKOUT: 'sig-BREAKOUT' };
+  return `<div class="space-y-2">` + signals.map(s => {
+    const cls = sigTypeColor[s.type] || 'badge-signal';
+    const ts = new Date(s.timestamp).toLocaleTimeString();
+    return `<div class="rounded-lg px-4 py-3 flex items-center justify-between" style="background:var(--card);border:1px solid var(--border)">
+      <div class="flex items-center gap-3">
+        <span class="text-xs px-2 py-0.5 rounded font-bold ${cls}">${s.type.replace('_',' ')}</span>
+        <span class="font-semibold text-white">${s.symbol}</span>
+        <span class="text-sm text-gray-400">${s.detail}</span>
+      </div>
+      <div class="flex items-center gap-4 text-sm">
+        <span class="text-indigo-400 font-mono">Score: ${s.score.toFixed(1)}</span>
+        <span class="text-gray-600 text-xs">${ts}</span>
+        <a href="https://dexscreener.com/base/${s.pairAddress}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300">View →</a>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+async function fetchJSON(path) {
+  try {
+    const r = await fetch(BASE_URL + path);
+    return await r.json();
+  } catch(e) {
+    return null;
+  }
+}
+
+async function refresh() {
+  // Always refresh stats
+  const stats = await fetchJSON('/api/stats');
+  if (stats) {
+    document.getElementById('s-tracked').textContent = stats.totalTracked;
+    document.getElementById('s-gems').textContent = stats.totalGems;
+    document.getElementById('s-strong').textContent = stats.totalStrong;
+    document.getElementById('s-signals').textContent = stats.totalSignals;
+    document.getElementById('s-uptime').textContent = stats.uptime;
+    document.getElementById('header-stats').innerHTML = `
+      <span class="text-gray-400">Tracked: <span class="text-white font-semibold">${stats.totalTracked}</span></span>
+      <span class="text-gray-400">Cycles: <span class="text-white">${stats.cycleCount}</span></span>
+      <span class="text-gray-400">Poll: <span class="text-indigo-400">${stats.pollInterval}</span></span>
+    `;
+  }
+  document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  if (currentTab === 'all') {
+    const data = await fetchJSON('/api/tokens');
+    document.getElementById('token-table').innerHTML = tokenRows(data);
+  } else if (currentTab === 'gems') {
+    const data = await fetchJSON('/api/gems');
+    document.getElementById('gems-table').innerHTML = tokenRows(data);
+  } else if (currentTab === 'signals') {
+    const data = await fetchJSON('/api/signals');
+    document.getElementById('signals-list').innerHTML = renderSignals(data);
+  } else if (currentTab === 'movers') {
+    const data = await fetchJSON('/api/movers');
+    document.getElementById('movers-table').innerHTML = tokenRows(data);
+  } else if (currentTab === 'hot') {
+    const data = await fetchJSON('/api/hot');
+    document.getElementById('hot-table').innerHTML = tokenRows(data);
+  }
+}
+
+// Auto refresh every 3 seconds
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

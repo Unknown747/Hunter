@@ -30,3 +30,11 @@ NODE_ENV = "production"
 
 [services.production.health.startup]
 path = "/api/healthz"
+
+[[services]]
+localPort = 8099
+name = "Meme Coin Hunter"
+paths = ["/hunter"]
+
+[services.development]
+run = "cd hunter && PORT=8099 go run ."
