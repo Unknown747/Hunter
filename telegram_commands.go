@@ -180,6 +180,8 @@ func (tg *TelegramNotifier) handleCommand(msg *tgMessage, pm *PositionManager, c
                 tg.cmdResume(pm)
         case "/alert", "/a":
                 tg.cmdAlert(parts[1:])
+        case "/config", "/cfg":
+                tg.cmdConfig(pm, parts[1:])
         default:
                 tg.send(fmt.Sprintf("❓ Perintah tidak dikenal: <code>%s</code>\nKetik /help untuk bantuan.", cmd))
         }
@@ -229,6 +231,16 @@ func (tg *TelegramNotifier) cmdHelp() {
                         "  /closeall — tutup semua posisi (ada konfirmasi)\n" +
                         "  /pause    — jeda entry baru (exit tetap jalan)\n" +
                         "  /resume   — aktifkan entry kembali\n\n" +
+                        "<b>⚙️ Konfigurasi Strategi</b>\n" +
+                        "  /config              — lihat semua parameter aktif\n" +
+                        "  /config mcap min 50000   — min market cap $50k\n" +
+                        "  /config mcap max 5000000 — max market cap $5M\n" +
+                        "  /config mcap reset       — nonaktifkan filter mcap\n" +
+                        "  /config score 75         — ubah min score\n" +
+                        "  /config buyratio 0.65    — ubah min buy ratio\n" +
+                        "  /config liq 20000        — ubah min liquidity\n" +
+                        "  /config risk normal      — ganti preset risiko\n" +
+                        "  /config reset            — reset ke default\n\n" +
                         "<b>🔔 Filter Alert Sinyal</b>\n" +
                         "  /alert            — lihat filter aktif\n" +
                         "  /alert score 80   — hanya notif score ≥ 80\n" +
@@ -666,6 +678,216 @@ func (tg *TelegramNotifier) alertShow() {
                         "Ketik /help untuk melihat contoh perintah lengkap.</i>",
                 scoreStr, liqStr, pumpStr,
                 sigActive, sigInactive,
+        ))
+}
+
+// ─── /config command ──────────────────────────────────────────────────────────
+
+// cmdConfig menampilkan atau mengubah parameter strategi secara realtime.
+//
+// Contoh:
+//
+//      /config                  — tampilkan semua parameter aktif
+//      /config mcap min 50000   — set min market cap $50k
+//      /config mcap max 5000000 — set max market cap $5M
+//      /config mcap reset       — nonaktifkan filter market cap
+//      /config score 75         — ubah min score
+//      /config buyratio 0.65    — ubah min buy ratio
+//      /config liq 20000        — ubah min liquidity
+//      /config risk normal      — ganti risk level preset
+//      /config reset            — reset semua ke default
+func (tg *TelegramNotifier) cmdConfig(pm *PositionManager, args []string) {
+        if len(args) == 0 {
+                tg.configShow(pm)
+                return
+        }
+
+        sub := strings.ToLower(args[0])
+
+        switch sub {
+        case "reset":
+                pm.UpdateConfig(func(c *StrategyConfig) {
+                        risk := c.RiskLevel
+                        *c = *ConfigForRisk(risk)
+                })
+                tg.configShow(pm)
+                tg.send("♻️ <b>Konfigurasi direset ke default.</b>")
+
+        case "risk":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/config risk normal</code> | <code>conservative</code> | <code>aggressive</code>")
+                        return
+                }
+                level := strings.ToLower(args[1])
+                if level != "normal" && level != "conservative" && level != "aggressive" {
+                        tg.send("❌ Risk level tidak valid. Pilihan: <code>normal</code>, <code>conservative</code>, <code>aggressive</code>")
+                        return
+                }
+                pm.UpdateConfig(func(c *StrategyConfig) {
+                        newCfg := ConfigForRisk(level)
+                        newCfg.MinMarketCapUSD = c.MinMarketCapUSD
+                        newCfg.MaxMarketCapUSD = c.MaxMarketCapUSD
+                        *c = *newCfg
+                })
+                tg.send(fmt.Sprintf("✅ <b>Risk level diubah ke: %s</b>\n<i>(filter market cap dipertahankan)</i>", level))
+                tg.configShow(pm)
+
+        case "mcap":
+                if len(args) < 2 {
+                        tg.send("❌ Format:\n  <code>/config mcap min 50000</code>\n  <code>/config mcap max 5000000</code>\n  <code>/config mcap reset</code>")
+                        return
+                }
+                sub2 := strings.ToLower(args[1])
+                switch sub2 {
+                case "reset":
+                        pm.UpdateConfig(func(c *StrategyConfig) {
+                                c.MinMarketCapUSD = 0
+                                c.MaxMarketCapUSD = 0
+                        })
+                        tg.send("✅ <b>Filter market cap dinonaktifkan.</b>\nEntry tidak dibatasi oleh market cap.")
+                case "min":
+                        if len(args) < 3 {
+                                tg.send("❌ Format: <code>/config mcap min 50000</code>")
+                                return
+                        }
+                        v, err := strconv.ParseFloat(args[2], 64)
+                        if err != nil || v < 0 {
+                                tg.send("❌ Nilai harus angka positif dalam USD. Contoh: <code>/config mcap min 50000</code>")
+                                return
+                        }
+                        pm.UpdateConfig(func(c *StrategyConfig) { c.MinMarketCapUSD = v })
+                        if v == 0 {
+                                tg.send("✅ <b>Min market cap dihapus</b> — tidak ada batas bawah market cap.")
+                        } else {
+                                tg.send(fmt.Sprintf("✅ <b>Min market cap: $%.0f</b>\nToken dengan mcap di bawah $%.0f akan diabaikan.", v, v))
+                        }
+                case "max":
+                        if len(args) < 3 {
+                                tg.send("❌ Format: <code>/config mcap max 5000000</code>")
+                                return
+                        }
+                        v, err := strconv.ParseFloat(args[2], 64)
+                        if err != nil || v < 0 {
+                                tg.send("❌ Nilai harus angka positif dalam USD. Contoh: <code>/config mcap max 5000000</code>")
+                                return
+                        }
+                        pm.UpdateConfig(func(c *StrategyConfig) { c.MaxMarketCapUSD = v })
+                        if v == 0 {
+                                tg.send("✅ <b>Max market cap dihapus</b> — tidak ada batas atas market cap.")
+                        } else {
+                                tg.send(fmt.Sprintf("✅ <b>Max market cap: $%.0f</b>\nToken dengan mcap di atas $%.0f akan diabaikan.", v, v))
+                        }
+                default:
+                        tg.send("❌ Sub-perintah tidak dikenal.\nGunakan: <code>min</code>, <code>max</code>, atau <code>reset</code>")
+                }
+
+        case "score":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/config score 75</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 || v > 100 {
+                        tg.send("❌ Score harus angka 0–100. Contoh: <code>/config score 75</code>")
+                        return
+                }
+                pm.UpdateConfig(func(c *StrategyConfig) { c.MinScore = v })
+                tg.send(fmt.Sprintf("✅ <b>Min score diubah: ≥ %.0f</b>", v))
+
+        case "buyratio":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/config buyratio 0.65</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 || v > 1 {
+                        tg.send("❌ Buy ratio harus angka 0–1. Contoh: <code>/config buyratio 0.65</code>")
+                        return
+                }
+                pm.UpdateConfig(func(c *StrategyConfig) { c.MinBuyRatio = v })
+                tg.send(fmt.Sprintf("✅ <b>Min buy ratio diubah: ≥ %.2f (%.0f%%)</b>", v, v*100))
+
+        case "liq":
+                if len(args) < 2 {
+                        tg.send("❌ Format: <code>/config liq 20000</code>")
+                        return
+                }
+                v, err := strconv.ParseFloat(args[1], 64)
+                if err != nil || v < 0 {
+                        tg.send("❌ Nilai harus angka positif USD. Contoh: <code>/config liq 20000</code>")
+                        return
+                }
+                pm.UpdateConfig(func(c *StrategyConfig) { c.MinLiquidityUSD = v })
+                tg.send(fmt.Sprintf("✅ <b>Min liquidity diubah: ≥ $%.0f</b>", v))
+
+        default:
+                tg.send(fmt.Sprintf(
+                        "❓ Sub-perintah tidak dikenal: <code>%s</code>\n\n"+
+                                "Contoh penggunaan:\n"+
+                                "  /config              — lihat config aktif\n"+
+                                "  /config mcap min 50000\n"+
+                                "  /config mcap max 5000000\n"+
+                                "  /config mcap reset\n"+
+                                "  /config score 75\n"+
+                                "  /config buyratio 0.65\n"+
+                                "  /config liq 20000\n"+
+                                "  /config risk normal\n"+
+                                "  /config reset",
+                        sub,
+                ))
+        }
+}
+
+// configShow menampilkan ringkasan semua parameter config yang sedang aktif.
+func (tg *TelegramNotifier) configShow(pm *PositionManager) {
+        cfg := pm.GetConfig()
+
+        mcapMin := "— (nonaktif)"
+        if cfg.MinMarketCapUSD > 0 {
+                mcapMin = fmt.Sprintf("≥ $%.0f", cfg.MinMarketCapUSD)
+        }
+        mcapMax := "— (nonaktif)"
+        if cfg.MaxMarketCapUSD > 0 {
+                mcapMax = fmt.Sprintf("≤ $%.0f", cfg.MaxMarketCapUSD)
+        }
+
+        tg.send(fmt.Sprintf(
+                "⚙️ <b>Konfigurasi Strategi Aktif</b>\n\n"+
+                        "🎯 Risk Level: <b>%s</b>\n\n"+
+                        "<b>📥 Entry Conditions</b>\n"+
+                        "  Score min:    <b>≥ %.0f</b>\n"+
+                        "  Buy ratio:    <b>≥ %.2f (%.0f%%)</b>\n"+
+                        "  Vol spike:    <b>≥ %.1fx</b>\n"+
+                        "  Liquidity:    <b>≥ $%.0f</b>\n"+
+                        "  Umur token:   <b>%.0f–%.0f menit</b>\n"+
+                        "  Pump 5m max:  <b>≤ %.0f%%</b>\n"+
+                        "  Mcap min:     <b>%s</b>\n"+
+                        "  Mcap max:     <b>%s</b>\n\n"+
+                        "<b>📤 Exit Rules</b>\n"+
+                        "  TP1: <b>+%.0f%%</b> → jual <b>%.0f%%</b>\n"+
+                        "  TP2: <b>+%.0f%%</b> → tutup semua\n"+
+                        "  SL:  <b>%.0f%%</b>\n"+
+                        "  Trailing: <b>%.0f%%</b> (aktif setelah +%.0f%%)\n"+
+                        "  Max hold: <b>%.0f menit</b>\n\n"+
+                        "<b>📦 Position Sizing</b>\n"+
+                        "  Size: <b>$%.2f</b> per trade\n"+
+                        "  Max posisi: <b>%d</b>\n\n"+
+                        "<i>Ketik /config &lt;param&gt; &lt;nilai&gt; untuk mengubah.\nKetik /config reset untuk kembali ke default.</i>",
+                cfg.RiskLevel,
+                cfg.MinScore,
+                cfg.MinBuyRatio, cfg.MinBuyRatio*100,
+                cfg.MinVolumeSpike,
+                cfg.MinLiquidityUSD,
+                cfg.MinAgeMinutes, cfg.MaxAgeMinutes,
+                cfg.MaxPricePump5m,
+                mcapMin, mcapMax,
+                cfg.TP1Pct, cfg.TP1SellFrac*100,
+                cfg.TP2Pct,
+                cfg.StopLossPct,
+                cfg.TrailingStopPct, cfg.TrailingActivatePct,
+                cfg.MaxHoldMinutes,
+                cfg.TradeSizeUSD,
+                cfg.MaxOpenTrades,
         ))
 }
 

@@ -48,6 +48,21 @@ func (pm *PositionManager) IsPaused() bool {
         return pm.paused
 }
 
+// GetConfig mengembalikan salinan config strategi yang aktif saat ini.
+func (pm *PositionManager) GetConfig() StrategyConfig {
+        pm.mu.RLock()
+        defer pm.mu.RUnlock()
+        return *pm.cfg
+}
+
+// UpdateConfig mengubah config strategi secara thread-safe.
+// fn menerima pointer ke config dan bisa mengubah field apa saja.
+func (pm *PositionManager) UpdateConfig(fn func(*StrategyConfig)) {
+        pm.mu.Lock()
+        fn(pm.cfg)
+        pm.mu.Unlock()
+}
+
 func NewPositionManager(cfg *StrategyConfig, exec Executor, bl *Blacklist, rugStore *RugPatternStore) *PositionManager {
         return &PositionManager{
                 positions: make(map[string]*Position),
