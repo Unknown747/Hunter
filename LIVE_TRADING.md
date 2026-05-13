@@ -1,61 +1,62 @@
-# Live Trading Setup (Base + Aerodrome)
+# Panduan Live Trading (Base + Aerodrome)
 
-## Prerequisites
+## Prasyarat
 
-1. **Add go-ethereum** to your hunter module:
-   ```bash
-   cd hunter
-   go get github.com/ethereum/go-ethereum@v1.14.8
-   go mod tidy
-   ```
+1. **go-ethereum sudah termasuk** dalam dependensi proyek ini (tidak perlu install manual).
 
-2. **Set environment variables** on your VPS:
+2. **Set environment variable** di VPS kamu:
    ```bash
    export LIVE_TRADING=true
-   export PRIVATE_KEY=your_wallet_private_key_hex_no_0x_prefix
-   export BASE_RPC_URL=https://mainnet.base.org   # or Alchemy/Infura for reliability
+   export PRIVATE_KEY=hex_private_key_tanpa_prefix_0x
+   export BASE_RPC_URL=https://mainnet.base.org   # atau Alchemy/Infura untuk lebih andal
+   export TRADE_SIZE_ETH=0.001                    # ukuran trade per posisi
    ```
 
-3. **Fund your wallet** with ETH on Base network.
-   - Each trade = TRADE_SIZE_USD worth of ETH (default $1)
-   - Keep at least 0.01 ETH for gas
+3. **Isi wallet** dengan ETH di jaringan Base.
+   - Setiap trade menggunakan nilai `TRADE_SIZE_ETH` ETH
+   - Sisakan minimal 0.01 ETH untuk biaya gas
 
-## How it works
+## Cara Kerja
 
-When `LIVE_TRADING=true`:
-1. Engine detects a qualifying token via the strategy engine
-2. Calls `swapExactETHForTokens` on Aerodrome Router V2 (Base)
+Saat `LIVE_TRADING=true`:
+1. Engine mendeteksi token yang memenuhi syarat melalui strategy engine
+2. Memanggil `swapExactETHForTokens` di Aerodrome Router V2 (Base)
    - Router: `0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43`
-   - Route: WETH → TOKEN (volatile pool)
-3. Monitors P&L every scan cycle
-4. Executes `approve` + `swapExactTokensForETH` when exit conditions trigger
+   - Rute: WETH → TOKEN (volatile pool)
+3. Memantau P&L setiap siklus scan
+4. Menjalankan `approve` + `swapExactTokensForETH` saat kondisi exit terpenuhi
 
-## Security
+## Keamanan
 
-- **Never commit your PRIVATE_KEY to git**
-- Use a dedicated hot wallet with limited funds
-- Start with paper mode to validate strategy performance
-- The wallet should hold ONLY the ETH needed for trading
+- **Jangan pernah commit PRIVATE_KEY ke git**
+- Gunakan wallet khusus dengan dana terbatas (hot wallet)
+- Mulai dengan paper mode dulu untuk validasi performa strategi
+- Wallet sebaiknya hanya menyimpan ETH yang diperlukan untuk trading
 
-## Implementing full on-chain execution in executor.go
+## Alamat Kontrak (Base Mainnet)
 
-Replace the stub in `LiveExecutor.Buy()` with:
-```go
-// 1. Load key
-privKey, _ := crypto.HexToECDSA(l.privateKey)
-// 2. Get nonce
-// 3. ABI-encode swapExactETHForTokens call
-// 4. Sign + send transaction
-// 5. Wait for receipt
-```
-
-See the Aerodrome Router V2 ABI for the exact function signatures.
-
-## Contract Addresses (Base Mainnet)
-
-| Contract          | Address                                    |
+| Kontrak           | Alamat                                     |
 |-------------------|--------------------------------------------|
 | Aerodrome Router  | 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 |
 | Aerodrome Factory | 0x420DD381b31aEf6683db6B902084cB0FFECe40Da |
 | WETH (Base)       | 0x4200000000000000000000000000000000000006 |
 | USDC (Base)       | 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 |
+
+## Cara Menggunakan via install.sh
+
+```bash
+# 1. Salin dan edit file konfigurasi
+cp .env.example .env
+nano .env
+
+# 2. Isi nilai berikut di .env:
+#    LIVE_TRADING=true
+#    PRIVATE_KEY=xxxxx
+#    BASE_RPC_URL=https://mainnet.base.org
+
+# 3. Jalankan installer
+sudo bash install.sh
+
+# 4. Cek log
+journalctl -u meme-hunter -f
+```

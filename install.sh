@@ -24,25 +24,25 @@ echo -e "${BOLD}║    Base Meme Coin Hunter — VPS Install   ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
-# ─── 1. Semak root ────────────────────────────────────────────────────────────
+# ─── 1. Cek root ──────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     error "Jalankan sebagai root: sudo bash install.sh"
 fi
 
-# ─── 2. Semak OS ──────────────────────────────────────────────────────────────
+# ─── 2. Cek OS ────────────────────────────────────────────────────────────────
 if ! command -v apt-get &>/dev/null && ! command -v yum &>/dev/null; then
-    error "OS tidak disokong. Hanya Debian/Ubuntu/CentOS."
+    error "OS tidak didukung. Hanya Debian/Ubuntu/CentOS."
 fi
 
 # ─── 3. Install dependencies ──────────────────────────────────────────────────
-info "Memasang dependencies sistem..."
+info "Menginstal dependencies sistem..."
 if command -v apt-get &>/dev/null; then
     apt-get update -qq
     apt-get install -y -qq curl wget git build-essential ca-certificates
 else
     yum install -y curl wget git gcc ca-certificates
 fi
-success "Dependencies sistem dipasang"
+success "Dependencies sistem terinstal"
 
 # ─── 4. Install Go ────────────────────────────────────────────────────────────
 ARCH=$(uname -m)
@@ -50,14 +50,14 @@ case "$ARCH" in
     x86_64)  GO_ARCH="amd64" ;;
     aarch64) GO_ARCH="arm64" ;;
     armv7l)  GO_ARCH="armv6l" ;;
-    *)       error "Arkitektur CPU tidak disokong: $ARCH" ;;
+    *)       error "Arsitektur CPU tidak didukung: $ARCH" ;;
 esac
 
 CURRENT_GO=$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//' || echo "")
 if [[ "$CURRENT_GO" == "$GO_VERSION" ]]; then
-    success "Go $GO_VERSION sudah dipasang"
+    success "Go $GO_VERSION sudah terinstal"
 else
-    info "Memasang Go $GO_VERSION ($GO_ARCH)..."
+    info "Menginstal Go $GO_VERSION ($GO_ARCH)..."
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     wget -q "https://go.dev/dl/${GO_TAR}" -O /tmp/${GO_TAR}
     rm -rf /usr/local/go
@@ -68,27 +68,27 @@ else
     if ! grep -q '/usr/local/go/bin' /etc/profile; then
         echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
     fi
-    success "Go $GO_VERSION dipasang"
+    success "Go $GO_VERSION berhasil diinstal"
 fi
 
 export PATH=$PATH:/usr/local/go/bin
-go version &>/dev/null || error "Go tidak boleh dijalankan selepas install"
+go version &>/dev/null || error "Go tidak bisa dijalankan setelah install"
 
-# ─── 5. Buat user system ──────────────────────────────────────────────────────
+# ─── 5. Buat user sistem ──────────────────────────────────────────────────────
 if ! id "$SERVICE_USER" &>/dev/null; then
-    info "Mencipta user sistem '$SERVICE_USER'..."
+    info "Membuat user sistem '$SERVICE_USER'..."
     useradd -r -s /bin/false -d "$INSTALL_DIR" "$SERVICE_USER"
-    success "User '$SERVICE_USER' dicipta"
+    success "User '$SERVICE_USER' berhasil dibuat"
 fi
 
-# ─── 6. Salin fail projek ─────────────────────────────────────────────────────
-info "Menyalin fail projek ke $INSTALL_DIR..."
+# ─── 6. Salin file proyek ─────────────────────────────────────────────────────
+info "Menyalin file proyek ke $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 
 # Dapatkan direktori skrip ini
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Salin semua fail Go + static
+# Salin semua file Go + static
 cp -r "$SCRIPT_DIR"/*.go "$INSTALL_DIR/" 2>/dev/null || true
 cp -r "$SCRIPT_DIR/go.mod" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/go.sum" "$INSTALL_DIR/"
@@ -97,29 +97,29 @@ cp -r "$SCRIPT_DIR/static" "$INSTALL_DIR/"
 # Salin .env jika ada
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
     cp "$SCRIPT_DIR/.env" "$INSTALL_DIR/.env"
-    warn ".env disalin — pastikan PRIVATE_KEY selamat (chmod 600 $INSTALL_DIR/.env)"
+    warn ".env disalin — pastikan PRIVATE_KEY aman (chmod 600 $INSTALL_DIR/.env)"
 fi
 
-success "Fail projek disalin ke $INSTALL_DIR"
+success "File proyek berhasil disalin ke $INSTALL_DIR"
 
 # ─── 7. Build binary ──────────────────────────────────────────────────────────
-info "Membina binary ($BINARY_NAME)..."
+info "Membangun binary ($BINARY_NAME)..."
 cd "$INSTALL_DIR"
 go mod download -x 2>&1 | tail -5
 go build -ldflags="-s -w" -o "$BINARY_NAME" . || error "Build gagal"
 chmod +x "$BINARY_NAME"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-success "Binary berjaya dibina: $INSTALL_DIR/$BINARY_NAME"
+success "Binary berhasil dibangun: $INSTALL_DIR/$BINARY_NAME"
 
-# ─── 8. Fail .env ─────────────────────────────────────────────────────────────
+# ─── 8. File .env ─────────────────────────────────────────────────────────────
 ENV_FILE="$INSTALL_DIR/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
-    info "Mencipta fail .env template..."
+    info "Membuat file .env template..."
     cat > "$ENV_FILE" <<EOF
 # ─── Port ─────────────────────────────────────────────────────────────────────
 PORT=${PORT}
 
-# ─── Live Trading (buang komen untuk aktifkan) ────────────────────────────────
+# ─── Live Trading (hapus komentar untuk mengaktifkan) ─────────────────────────
 # LIVE_TRADING=true
 # PRIVATE_KEY=hex_private_key_tanpa_0x
 # BASE_RPC_URL=https://mainnet.base.org
@@ -127,11 +127,11 @@ PORT=${PORT}
 EOF
     chmod 600 "$ENV_FILE"
     chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
-    success "Fail .env dicipta di $ENV_FILE"
+    success "File .env dibuat di $ENV_FILE"
 fi
 
 # ─── 9. Systemd service ───────────────────────────────────────────────────────
-info "Mencipta systemd service..."
+info "Membuat systemd service..."
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=Base Meme Coin Hunter (Aerodrome)
@@ -168,13 +168,13 @@ sleep 2
 if systemctl is-active --quiet "${SERVICE_NAME}"; then
     success "Service '${SERVICE_NAME}' berjalan!"
 else
-    warn "Service mungkin ada masalah. Semak: journalctl -u ${SERVICE_NAME} -n 30"
+    warn "Service mungkin ada masalah. Cek: journalctl -u ${SERVICE_NAME} -n 30"
 fi
 
 # ─── 10. Selesai ──────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║           Pemasangan Selesai!            ║${NC}"
+echo -e "${BOLD}║          Instalasi Selesai!              ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Dashboard : ${GREEN}http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_IP'):${PORT}${NC}"
@@ -186,10 +186,10 @@ echo -e "  Status  : systemctl status ${SERVICE_NAME}"
 echo -e "  Log     : journalctl -u ${SERVICE_NAME} -f"
 echo -e "  Restart : systemctl restart ${SERVICE_NAME}"
 echo -e "  Stop    : systemctl stop ${SERVICE_NAME}"
-echo -e "  Config  : nano ${ENV_FILE}  (kemudian restart)"
+echo -e "  Config  : nano ${ENV_FILE}  (lalu restart)"
 echo ""
-echo -e "${YELLOW}Untuk aktifkan live trading:${NC}"
+echo -e "${YELLOW}Untuk mengaktifkan live trading:${NC}"
 echo -e "  1. Edit ${ENV_FILE}"
-echo -e "  2. Buang komen LIVE_TRADING, PRIVATE_KEY, BASE_RPC_URL"
+echo -e "  2. Hapus komentar LIVE_TRADING, PRIVATE_KEY, BASE_RPC_URL"
 echo -e "  3. systemctl restart ${SERVICE_NAME}"
 echo ""
