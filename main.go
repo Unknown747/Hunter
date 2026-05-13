@@ -12,6 +12,9 @@ import (
 
 var logger = log.New(os.Stdout, "[hunter] ", log.LstdFlags)
 
+// tg adalah notifier Telegram global — non-nil selalu, tapi disabled jika env var tidak di-set.
+var tg *TelegramNotifier
+
 func main() {
         port := os.Getenv("PORT")
         if port == "" {
@@ -33,6 +36,7 @@ func main() {
         bl := NewBlacklist()
         rugStore := NewRugPatternStore()
         exec := NewExecutor()
+        tg = NewTelegramNotifier()
         pm := NewPositionManager(cfg, exec, bl, rugStore)
 
         // ── Muat state dari disk (posisi + trade log + blacklist) ─────────────────
@@ -171,6 +175,12 @@ func runPipeline(in <-chan []DexPair, cache *Cache, pm *PositionManager, stats *
                                 t.Category = Categorize(t.Score)
                                 priorState, _ := cache.Upsert(t)
                                 pm.OnTokenUpdate(t, &priorState)
+                                // Deteksi sinyal dan forward ke Telegram
+                                if sigs := DetectSignals(t, &priorState); len(sigs) > 0 {
+                                        for _, sig := range sigs {
+                                                tg.NotifySignal(sig, t)
+                                        }
+                                }
                                 stats.RecordPassed()
                                 stats.SetLastTokenTime()
                         }

@@ -44,6 +44,7 @@ func (a *APIServer) Routes() http.Handler {
                 mux.HandleFunc(p+"/api/manual-buy", a.handleManualBuy)
                 mux.HandleFunc(p+"/api/manual-sell", a.handleManualSell)
                 mux.HandleFunc(p+"/api/force-close", a.handleForceClose)
+                mux.HandleFunc(p+"/api/telegram-test", a.handleTelegramTest)
                 mux.HandleFunc(p+"/api/token/", a.handleTokenHistory) // /api/token/{addr}/history
                 mux.HandleFunc(p+"/health", a.handleHealth)
         }
@@ -93,6 +94,19 @@ func (a *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 // handlePipelineStats mengembalikan statistik filter pipeline (berapa token lolos/ditolak dan mengapa).
 func (a *APIServer) handlePipelineStats(w http.ResponseWriter, r *http.Request) {
         writeJSON(w, a.stats.PipelineStats())
+}
+
+// handleTelegramTest mengirim pesan test ke Telegram untuk verifikasi konfigurasi.
+func (a *APIServer) handleTelegramTest(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodGet {
+                http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+                return
+        }
+        if err := tg.SendTest(); err != nil {
+                writeJSON(w, map[string]string{"status": "error", "message": err.Error()})
+                return
+        }
+        writeJSON(w, map[string]string{"status": "ok", "message": "Pesan test berhasil dikirim ke Telegram"})
 }
 
 // handleHealth mengembalikan status engine untuk monitoring/uptime checker.

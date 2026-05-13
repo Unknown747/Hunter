@@ -115,6 +115,7 @@ func (pm *PositionManager) checkEntry(t *TokenInfo, state *TokenState) {
 
         logger.Printf("[trader] ✅ BUKA %s @ $%.6f | score=%.1f | %s | tx=%s",
                 t.Symbol, fill.Price, t.Score, result.Reason, fill.TxHash)
+        tg.NotifyEntry(pos, t, pm.cfg)
 }
 
 func (pm *PositionManager) checkExits(t *TokenInfo) {
@@ -204,14 +205,19 @@ func (pm *PositionManager) checkExits(t *TokenInfo) {
                         }
                         logger.Printf("[trader] %s TUTUP %s @ $%.6f | pnl=%.2f%% | net=$%.4f | gas=$%.4f | %s",
                                 mark, t.Symbol, fill.Price, pos.PnLPercent, netPnL, pos.GasCostUSD, exit.Reason)
+                        tg.NotifyExit(pos, fill.Price, exit.Reason)
 
                 } else {
                         // Partial close — tandai TP1
-                        if math.Abs(exit.Fraction-pm.cfg.TP1SellFrac) < 1e-9 {
+                        isTP1 := math.Abs(exit.Fraction-pm.cfg.TP1SellFrac) < 1e-9
+                        if isTP1 {
                                 pos.TP1Hit = true
                         }
                         logger.Printf("[trader] ✂️  PARSIAL %s | jual %.0f%% @ $%.6f | pnl=%.2f%% | %s",
                                 t.Symbol, exit.Fraction*100, fill.Price, pos.PnLPercent, exit.Reason)
+                        if isTP1 {
+                                tg.NotifyTP1(pos, fill.Price, pm.cfg)
+                        }
                 }
         }
 }
