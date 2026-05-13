@@ -62,3 +62,11 @@ externalPort = 8099
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+BASE_RPC_URL = "https://mainnet.base.org"
+TRADE_SIZE_ETH = "0.0001"
+SLIPPAGE_PCT = "5.0"
+RISK_LEVEL = "normal"
