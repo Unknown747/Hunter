@@ -9,7 +9,8 @@
    export LIVE_TRADING=true
    export PRIVATE_KEY=hex_private_key_tanpa_prefix_0x
    export BASE_RPC_URL=https://mainnet.base.org   # atau Alchemy/Infura untuk lebih andal
-   export TRADE_SIZE_ETH=0.001                    # ukuran trade per posisi
+   export TRADE_SIZE_ETH=0.001                    # ukuran trade per posisi (dalam ETH)
+   export SLIPPAGE_PCT=5.0                        # toleransi slippage maks (default: 5%)
    ```
 
 3. **Isi wallet** dengan ETH di jaringan Base.
@@ -20,11 +21,24 @@
 
 Saat `LIVE_TRADING=true`:
 1. Engine mendeteksi token yang memenuhi syarat melalui strategy engine
-2. Memanggil `swapExactETHForTokens` di Aerodrome Router V2 (Base)
+2. Query `getAmountsOut` ke router untuk mendapatkan estimasi output
+3. Hitung `amountOutMin` = estimasi output × (1 - SLIPPAGE_PCT/100) → **proteksi sandwich attack**
+4. Memanggil `swapExactETHForTokens` di Aerodrome Router V2 (Base)
    - Router: `0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43`
    - Rute: WETH → TOKEN (volatile pool)
-3. Memantau P&L setiap siklus scan
-4. Menjalankan `approve` + `swapExactTokensForETH` saat kondisi exit terpenuhi
+5. Memantau P&L setiap siklus scan
+6. Menjalankan `approve` + `swapExactTokensForETH` (juga dengan slippage guard) saat kondisi exit terpenuhi
+7. Harga ETH/USD diambil live dari pool WETH/USDC Aerodrome (bukan hardcode)
+
+## Slippage Protection
+
+| `SLIPPAGE_PCT` | Efek |
+|---|---|
+| 1–2% | Sangat ketat — sering gagal di meme coin dengan spread lebar |
+| 3–5% | **Rekomendasi** — keseimbangan antara proteksi dan success rate |
+| 10%+ | Longgar — jarang gagal, tapi rentan dapat harga buruk |
+
+Jika `getAmountsOut` gagal (RPC timeout, pool baru), transaksi tetap dikirim dengan `amountOutMin=0` + log peringatan.
 
 ## Keamanan
 
